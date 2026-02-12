@@ -1,0 +1,97 @@
+# FortiGate CloudFormation Validation Rules
+# Custom cfn-guard rules for FortiNet FortiGate deployments
+
+# Rule 1: FortiGate instances must use approved compute-optimized types
+rule FortiGateInstanceType when Resources.*[ Type == "AWS::EC2::Instance" ] {
+    Properties.InstanceType in [
+        "c5.large", "c5.xlarge", "c5.2xlarge", "c5.4xlarge", "c5.9xlarge",
+        "c5n.large", "c5n.xlarge", "c5n.2xlarge", "c5n.4xlarge", "c5n.9xlarge",
+        "c6i.large", "c6i.xlarge", "c6i.2xlarge", "c6i.4xlarge",
+        "c6in.large", "c6in.xlarge", "c6in.2xlarge", "c6in.4xlarge",
+        "c7i.large", "c7i.xlarge", "c7i.2xlarge", "c7i.4xlarge",
+        "m5.large", "m5.xlarge", "m5.2xlarge", "m5.4xlarge",
+        "r5.large", "r5.xlarge", "r5.2xlarge"
+    ]
+    <<
+        Violation: FortiGate EC2 instances must use approved instance types.
+        Fix: Use compute-optimized (c5/c5n/c6i/c6in/c7i), memory-optimized (r5), or general-purpose (m5) instances.
+    >>
+}
+
+# Rule 2: FortiGate EBS volumes must be encrypted
+rule FortiGateVolumeEncryption when Resources.*[ Type == "AWS::EC2::Instance" ] {
+    Properties.BlockDeviceMappings[*].Ebs.Encrypted == true
+    <<
+        Violation: FortiGate EBS volumes must be encrypted.
+        Fix: Set Encrypted: true on all BlockDeviceMappings.
+    >>
+}
+
+# Rule 3: No open SSH access (0.0.0.0/0 on port 22)
+rule NoOpenSSH when Resources.*[ Type == "AWS::EC2::SecurityGroup" ] {
+    Properties.SecurityGroupIngress[*] {
+        when CidrIp == "0.0.0.0/0" {
+            FromPort != 22
+            <<
+                Violation: SSH (port 22) must not be open to 0.0.0.0/0.
+                Fix: Restrict SSH access to specific CIDR ranges.
+            >>
+        }
+    }
+}
+
+# Rule 4: No unrestricted management access (0.0.0.0/0 on port 443)
+rule RestrictedManagementAccess when Resources.*[ Type == "AWS::EC2::SecurityGroup" ] {
+    Properties.SecurityGroupIngress[*] {
+        when CidrIp == "0.0.0.0/0" {
+            FromPort != 443
+            <<
+                Violation: HTTPS management (port 443) must not be open to 0.0.0.0/0.
+                Fix: Restrict management access to specific admin CIDR ranges.
+            >>
+        }
+    }
+}
+
+# Rule 5: VPC must have DNS support enabled
+rule VPCDNSEnabled when Resources.*[ Type == "AWS::EC2::VPC" ] {
+    Properties.EnableDnsSupport == true
+    Properties.EnableDnsHostnames == true
+    <<
+        Violation: VPC must have DNS support and hostnames enabled.
+        Fix: Set EnableDnsSupport: true and EnableDnsHostnames: true.
+    >>
+}
+
+# Rule 6: Required tags on all taggable resources
+rule RequiredTags when Resources.*[
+    Type in [
+        "AWS::EC2::VPC", "AWS::EC2::Subnet", "AWS::EC2::Instance",
+        "AWS::EC2::SecurityGroup", "AWS::EC2::NetworkInterface",
+        "AWS::EC2::RouteTable", "AWS::EC2::InternetGateway",
+        "AWS::EC2::NatGateway", "AWS::EC2::EIP",
+        "AWS::ElasticLoadBalancingV2::LoadBalancer",
+        "AWS::ElasticLoadBalancingV2::TargetGroup"
+    ]
+] {
+    Properties.Tags[*].Key == "Project"
+    Properties.Tags[*].Key == "Environment"
+    Properties.Tags[*].Key == "ManagedBy"
+    <<
+        Violation: Resources must have Project, Environment, and ManagedBy tags.
+        Fix: Add required tags to all taggable resources.
+    >>
+}
+
+# Rule 7: IAM roles must not use wildcard actions (except ec2:Describe*)
+rule IAMRoleLeastPrivilege when Resources.*[ Type == "AWS::IAM::Role" ] {
+    Properties.Policies[*].PolicyDocument.Statement[*] {
+        when Action != "ec2:Describe*" {
+            Action != "*"
+            <<
+                Violation: IAM policies must not use wildcard (*) for Action.
+                Fix: Specify explicit actions instead of '*'. Exception: ec2:Describe* is allowed.
+            >>
+        }
+    }
+}

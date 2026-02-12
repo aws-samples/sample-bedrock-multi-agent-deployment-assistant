@@ -1,0 +1,38 @@
+# Virtual environments and caches
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.pyc
+*.pyo
+
+# Local data
+.local-data/
+
+# Environment files — secrets must never be baked into images
+.env
+.env.*
+
+# Version control
+.git/
+.gitignore
+
+# Tests — not needed in production image
+tests/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Coverage
+htmlcov/
+.coverage
+
+# Docker (avoid recursive copy)
+Dockerfile
+docker-compose*.yml
+
+# Documentation — prompts are .txt and ARE needed
+*.md

@@ -1,0 +1,10 @@
+{
+  "name": "validate-mermaid",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Mermaid diagram validator for the AI-LCM documentation agent",
+  "dependencies": {
+    "mermaid": "^11.4.0"
+  }
+}

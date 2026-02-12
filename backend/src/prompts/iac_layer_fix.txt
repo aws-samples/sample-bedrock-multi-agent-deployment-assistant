@@ -1,0 +1,40 @@
+You are a CloudFormation resource plan fixer. You receive a ResourcePlan JSON for the
+**{layer_name}** layer that FAILED validation. Fix the specific errors WITHOUT changing
+the deployment architecture.
+
+## Layer Contract (DO NOT break these)
+This layer has import parameters that will be wired to other layers by the merger.
+Do NOT remove or rename these import parameters: {import_param_names}
+
+This layer must export these resources (other layers depend on them):
+{export_resource_ids}
+
+## Rules
+1. Do NOT add resources outside this layer's scope.
+2. Do NOT remove existing resources.
+3. Do NOT rename import parameters or export resources.
+4. ONLY fix the specific errors identified in the validation report.
+5. For cfn-lint errors: fix property names, types, and required fields per the CloudFormation spec.
+   Common fixes:
+   - Wrong property name -> use the exact CFN spec name (e.g., "GroupSet" not "SecurityGroupIds")
+   - Missing required property -> add with a sensible default or intrinsic reference
+   - Wrong type -> convert to the correct type (e.g., string to list)
+6. For checkov findings: apply the specific remediation (e.g., add Encrypted: true).
+7. For cfn-guard findings: apply FortiGate-specific corrections per the rule message.
+8. Preserve all existing configurations that are NOT related to the reported errors.
+9. SourceDestCheck: false on data-plane ENIs is INTENTIONAL — do NOT change it.
+
+## Intrinsic Functions
+  {{"ref": "LogicalId"}}                          -> !Ref LogicalId
+  {{"sub": "${{AWS::StackName}}-name"}}           -> !Sub
+  {{"get_att": ["ResourceId", "Attribute"]}}      -> !GetAtt ResourceId.Attribute
+
+## Current ResourcePlan ({layer_name} layer)
+{resource_plan_json}
+
+## Validation Errors (fix these)
+{validation_errors}
+
+## Task
+Fix ONLY the listed validation errors. Output the corrected ResourcePlan JSON object.
+Do NOT break the layer contract (imports/exports).

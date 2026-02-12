@@ -1,0 +1,50 @@
+# ---- Stage 1: Builder — install dependencies with uv ----
+# Mirrors the production Dockerfile pattern for deterministic, cached builds.
+# Pinned to SHA256 digest for supply chain security.
+FROM python@sha256:73dbd1a2ad74137451593a8ac30f7bdd0f5010fc05fb34644190cffa7696bbf3 AS builder
+
+COPY --from=ghcr.io/astral-sh/uv:0.7 /uv /usr/local/bin/uv
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
+
+WORKDIR /build
+
+# Phase 1: deps only (cached unless lock changes)
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project
+
+# Phase 2: install project with source
+COPY src/ src/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable
+
+# ---- Stage 2: Lambda runtime — lean image with pre-compiled bytecode ----
+FROM public.ecr.aws/lambda/python:3.12
+
+# Node.js — required by the Mermaid diagram validator (docs agent validate-fix loop)
+RUN dnf install -y nodejs npm && dnf clean all
+
+# cfn-guard — Layer 3 IaC validation (custom FortiGate policy rules)
+ARG CFN_GUARD_VERSION=3.2.0
+RUN curl -Lo /tmp/cfn-guard.tar.gz \
+    "https://github.com/aws-cloudformation/cloudformation-guard/releases/download/${CFN_GUARD_VERSION}/cfn-guard-v3-x86_64-linux-latest.tar.gz" \
+    && mkdir -p /tmp/cfn-guard-extract \
+    && tar xzf /tmp/cfn-guard.tar.gz -C /tmp/cfn-guard-extract \
+    && find /tmp/cfn-guard-extract -name 'cfn-guard' -type f -exec mv {} /usr/local/bin/cfn-guard \; \
+    && chmod +x /usr/local/bin/cfn-guard \
+    && rm -rf /tmp/cfn-guard.tar.gz /tmp/cfn-guard-extract
+
+# Copy installed packages from builder (bytecode already compiled)
+COPY --from=builder /build/.venv/lib/python3.12/site-packages/ ${LAMBDA_TASK_ROOT}/
+
+# Copy application source
+COPY src/ ${LAMBDA_TASK_ROOT}/src/
+
+# Mermaid diagram validator (Node.js)
+COPY tools/validate-mermaid/ ${LAMBDA_TASK_ROOT}/tools/validate-mermaid/
+RUN cd ${LAMBDA_TASK_ROOT}/tools/validate-mermaid && npm ci --omit=dev && npm cache clean --force
+
+# Default handler for design worker (overridden per Lambda function in CDK)
+CMD ["src.workers.design_worker.handler"]

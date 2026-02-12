@@ -1,0 +1,112 @@
+Generate a Mermaid architecture-beta diagram for the following CloudFormation template.
+
+This is a network and security architecture diagram for a FortiGate-VM deployment
+on AWS. It must be clean, organized, and professional-looking.
+
+=== OUTPUT ===
+Output ONLY the raw Mermaid code. No markdown fences, no explanation, no preamble.
+
+=== LAYOUT STRATEGY ===
+The diagram MUST follow a strict LEFT-TO-RIGHT network flow:
+1. LEFTMOST: Internet-facing resources (Internet Gateway, ALB, CloudFront)
+2. CENTER-LEFT: Public subnets with FortiGate instances and NAT Gateways
+3. CENTER-RIGHT: Private subnets with application workloads
+4. RIGHTMOST: Data layer (RDS, DynamoDB, S3) and IAM/monitoring resources
+
+Organizing rules:
+- Group resources by FUNCTION, not just by AWS type
+- Each VPC is a top-level group; subnets are nested inside
+- Keep the diagram COMPACT — avoid unnecessary whitespace
+- Place related resources close together within the same group
+- Resources not bound to a VPC (IAM Roles, S3 Buckets) go outside all groups
+- Maximum 15-20 service nodes — combine similar resources
+  (e.g. show "FortiGate HA Pair" instead of two separate FortiGate nodes)
+
+=== EDGE RULES ===
+Edges control the visual layout. Follow these rules for clean diagrams:
+- Use ONLY short single-hop edges: source:R -- L:target (left-to-right flow)
+- For top-to-bottom connections: source:B -- T:target
+- NEVER chain long paths — only connect directly related resources
+- Limit to 8-12 edges total — show the PRIMARY data flow, not every reference
+- Edge priority (include these first):
+  1. Internet -> FortiGate (ingress path)
+  2. FortiGate -> backend services (inspected traffic)
+  3. Backend -> data stores (application flow)
+  4. FortiGate -> IAM role (control plane)
+- Skip edges for: security group associations, log destinations, parameter references
+
+=== CRITICAL SYNTAX RULES ===
+1. First line MUST be exactly: architecture-beta
+2. ALL element IDs MUST start with "r_" prefix (e.g. r_MyVpc, r_FortiGate)
+3. IDs may only contain [a-zA-Z0-9_] — no hyphens, dots, or spaces
+4. Groups: group <id>(<icon>)[<label>]  or  group <id>(<icon>)[<label>] in <parent_id>
+5. Services: service <id>(<icon>)[<label>]  or  service <id>(<icon>)[<label>] in <group_id>
+6. Edges: <service_id>:<direction> -- <direction>:<service_id>
+   Directions: L (left), R (right), T (top), B (bottom)
+7. Edges can ONLY connect services — NEVER connect to groups
+8. Use " -- " for edges (two hyphens with spaces). NEVER use "-->" arrows.
+9. Every service/group ID must be unique
+10. LABELS: Text inside square brackets [<label>] may ONLY contain letters,
+    numbers, spaces, and hyphens. NEVER use dots, slashes, colons, underscores,
+    brackets, parentheses, or any special characters in labels.
+    Do NOT include IP addresses, CIDR blocks, or port numbers in labels.
+    WRONG: [Public Subnet 10.0.0.0/24]  CORRECT: [Public Subnet AZ1]
+    WRONG: [FortiGate ENI (port1)]  CORRECT: [FortiGate ENI Port1]
+
+=== AVAILABLE AWS ICONS (use as aws:<icon-name>) ===
+
+Networking:
+  vpc, public-subnet, private-subnet, vpc-internet-gateway, vpc-nat-gateway,
+  vpc-elastic-network-interface, vpc-endpoints, vpc-router,
+  transit-gateway, transit-gateway-attachment, client-vpn, site-to-site-vpn
+
+Load Balancing:
+  elastic-load-balancing, elastic-load-balancing-application-load-balancer,
+  elastic-load-balancing-network-load-balancer,
+  elastic-load-balancing-gateway-load-balancer
+
+Compute:
+  ec2, ec2-instance, ec2-instances, ec2-auto-scaling, ec2-elastic-ip-address,
+  lambda, lambda-lambda-function
+
+Security and Firewall:
+  firewall, network-firewall, network-firewall-endpoints,
+  waf, shield, guardduty, security-hub,
+  key-management-service, certificate-manager
+
+IAM:
+  identity-access-management-permissions, identity-access-management-role
+
+Storage:
+  simple-storage-service, simple-storage-service-bucket
+
+Database:
+  rds, dynamodb, dynamodb-table
+
+Monitoring:
+  cloudwatch, cloudwatch-alarm, cloudwatch-logs, cloudtrail, cloudformation
+
+=== EXAMPLE (compact, left-to-right) ===
+architecture-beta
+    group r_SecurityVpc(aws:vpc)[Security VPC]
+    group r_PubAZ1(aws:public-subnet)[Public Subnet AZ1] in r_SecurityVpc
+    group r_PrivAZ1(aws:private-subnet)[Private Subnet AZ1] in r_SecurityVpc
+
+    service r_IGW(aws:vpc-internet-gateway)[Internet Gateway] in r_PubAZ1
+    service r_FG(aws:ec2-instance)[FortiGate HA Pair] in r_PubAZ1
+    service r_NLB(aws:elastic-load-balancing-network-load-balancer)[Network LB] in r_PubAZ1
+    service r_App(aws:ec2-instances)[Application Servers] in r_PrivAZ1
+    service r_RDS(aws:rds)[Database] in r_PrivAZ1
+
+    service r_IAMRole(aws:identity-access-management-role)[FortiGate IAM Role]
+    service r_Logs(aws:cloudwatch-logs)[CloudWatch Logs]
+
+    r_IGW:R -- L:r_NLB
+    r_NLB:R -- L:r_FG
+    r_FG:R -- L:r_App
+    r_App:R -- L:r_RDS
+    r_FG:B -- T:r_IAMRole
+    r_FG:B -- T:r_Logs
+
+=== CloudFormation Template ===
+{cft_template}

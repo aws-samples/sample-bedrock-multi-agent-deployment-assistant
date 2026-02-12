@@ -1,0 +1,47 @@
+Write a STRIDE-based Threat Model for a FortiGate-VM deployment on AWS.
+Output ONLY the Markdown content — no preamble, no wrapping fences, no meta-commentary.
+Use tables, bullet points, and numbered lists for clarity.
+Threats must be specific to this FortiGate AWS deployment — not generic cloud threats.
+Reference actual CloudFormation resources where applicable.
+TARGET LENGTH: approximately 3000 words. Be concise — focus on the highest-impact
+threats and most actionable mitigations.
+
+The threat model MUST include the following sections in order:
+
+## 1. Scope and Data Flow
+- Assets in scope: compute, network, storage, IAM
+- Trust boundaries and attack surface description
+- Data flow description in text:
+  external traffic -> IGW -> FortiGate -> internal services
+
+## 2. STRIDE Analysis
+For EACH of the 6 STRIDE categories (Spoofing, Tampering, Repudiation,
+Information Disclosure, Denial of Service, Elevation of Privilege):
+- Provide a table with columns: Threat | Impact | Likelihood | Mitigation | Residual Risk
+- Minimum 3 threats per category
+- Threats must reference specific AWS resources and FortiGate features
+- Mitigations should reference both AWS-native and FortiGate-specific controls
+
+## 3. Risk Summary
+- Risk matrix: summary table with Critical / High / Medium / Low counts
+- Top 5 priority mitigations ranked by risk reduction impact,
+  with specific actions and responsible teams
+- Compliance considerations: relevant standards
+  (PCI-DSS, SOC2, HIPAA, NIST) and how the deployment aligns
+
+## 4. Recommendations
+- Residual risk acceptance: risks that cannot be fully mitigated,
+  with justification
+- Monitoring recommendations: detection controls for identified threats
+- FortiGate-specific hardening recommendations
+
+=== CONTEXT ===
+
+Approved Design:
+{design_json}
+
+Requirements:
+{requirements_json}
+
+CloudFormation Template:
+{cft_template}

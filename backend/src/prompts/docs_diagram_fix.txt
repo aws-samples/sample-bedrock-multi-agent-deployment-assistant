@@ -1,0 +1,25 @@
+The following Mermaid architecture-beta diagram has validation errors.
+Fix ONLY the errors listed below. Do NOT change parts of the diagram that are
+already correct. Preserve the overall structure, resource layout, and connections.
+
+Output ONLY the corrected Mermaid code — no markdown fences, no explanation.
+
+=== SYNTAX RULES (for reference) ===
+1. First line MUST be exactly: architecture-beta
+2. ALL element IDs MUST start with "r_" prefix and contain only [a-zA-Z0-9_]
+3. Groups: group <id>(<icon>)[<label>]  or  group <id>(<icon>)[<label>] in <parent_id>
+4. Services: service <id>(<icon>)[<label>]  or  service <id>(<icon>)[<label>] in <group_id>
+5. Edges: <service_id>:<direction> -- <direction>:<service_id>
+   Directions: L (left), R (right), T (top), B (bottom)
+6. Edges can ONLY connect services — NEVER connect to groups
+7. Use " -- " for edges (two hyphens with spaces). NEVER use "-->" arrows.
+8. Labels inside [<label>] may ONLY contain letters, numbers, spaces, and hyphens
+
+=== VALIDATION ERRORS ===
+{validation_errors}
+
+=== CURRENT DIAGRAM (with errors) ===
+{diagram_code}
+
+=== ORIGINAL CloudFormation Template (for reference) ===
+{cft_template}
