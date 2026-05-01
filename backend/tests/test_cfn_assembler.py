@@ -200,9 +200,9 @@ class TestAssemble:
         assert "Parameters" in parsed
 
     def test_description_included(self):
-        plan = self._minimal_plan(description="My FortiGate Stack")
+        plan = self._minimal_plan(description="My Inference Stack")
         result = assemble(plan)
-        assert "My FortiGate Stack" in result
+        assert "My Inference Stack" in result
 
     def test_parameters_section(self):
         plan = self._minimal_plan(

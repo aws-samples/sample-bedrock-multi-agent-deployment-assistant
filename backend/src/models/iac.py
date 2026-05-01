@@ -104,7 +104,7 @@ class ValidationReport(BaseModel):
 class IaCOutput(BaseModel):
     """Final IaC generation output."""
 
-    files: dict[str, str]            # {"template.yaml": "...", "fortigate_rules.guard": "..."}
+    files: dict[str, str]            # {"template.yaml": "...", "rules.guard": "..."}
     validation_report: ValidationReport
     template_resolution_path: str
     generation_duration_ms: int

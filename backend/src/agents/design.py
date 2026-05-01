@@ -27,8 +27,14 @@ _system_prompt_template = (PROMPTS_DIR / "design.txt").read_text()
 
 
 def _build_system_prompt(available_templates: str) -> str:
-    """Inject available templates into the system prompt."""
-    return _system_prompt_template.replace("{available_templates}", available_templates)
+    """Inject catalog context and available templates into the system prompt."""
+    from src.services.catalog_loader import get_catalog
+    catalog = get_catalog()
+    format_vars = {
+        **catalog.get_prompt_context(),
+        "available_templates": available_templates,
+    }
+    return _system_prompt_template.format(**format_vars)
 
 
 def create_design_agent(available_templates: str = "None") -> Agent:

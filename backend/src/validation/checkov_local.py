@@ -9,9 +9,9 @@ from src.models.iac import ValidationFinding
 
 logger = logging.getLogger(__name__)
 
-# FortiGate-specific checks to skip (intentional security patterns)
-_FORTIGATE_SKIP_CHECKS = {
-    "CKV_AWS_23",  # SourceDestCheck=false is intentional for FortiGate data-plane ENIs
+# Product-specific checks to skip (intentional security patterns — configured via config.yaml)
+_DEFAULT_SKIP_CHECKS = {
+    "CKV_AWS_23",  # SourceDestCheck=false may be intentional for appliance data-plane ENIs
 }
 
 
@@ -37,7 +37,7 @@ def validate_checkov(
         ))
         return findings
 
-    all_skips = list(_FORTIGATE_SKIP_CHECKS | set(skip_checks or []))
+    all_skips = list(_DEFAULT_SKIP_CHECKS | set(skip_checks or []))
 
     tmp_dir = None
     try:

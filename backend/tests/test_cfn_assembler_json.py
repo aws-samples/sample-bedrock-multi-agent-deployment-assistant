@@ -217,10 +217,10 @@ class TestAssembleJson:
         assert "VpcCidr" in parsed["Parameters"]
 
     def test_description_included(self):
-        plan = self._minimal_plan(description="My FortiGate Stack")
+        plan = self._minimal_plan(description="My Inference Stack")
         result = assemble_json(plan)
         parsed = json.loads(result)
-        assert parsed["Description"] == "My FortiGate Stack"
+        assert parsed["Description"] == "My Inference Stack"
 
     def test_parameters_section(self):
         plan = self._minimal_plan(
@@ -333,7 +333,7 @@ class TestAssembleJson:
         assert "Conditions" not in parsed
 
     def test_nested_intrinsics_in_json(self):
-        """FortiGate UserData pattern: base64 -> sub."""
+        """Appliance UserData pattern: base64 -> sub."""
         plan = self._minimal_plan(
             resources=[
                 CfnResource(
@@ -400,7 +400,7 @@ class TestAssembleJson:
         from src.validation.structural import validate_structural
 
         plan = ResourcePlan(
-            description="Complex FortiGate HA stack",
+            description="Complex Appliance HA stack",
             parameters=[
                 CfnParameter(logical_id="VpcCidr", type="String", default="10.0.0.0/16"),
                 CfnParameter(logical_id="HAMode", type="String", default="active-passive"),
@@ -428,7 +428,7 @@ class TestAssembleJson:
                     },
                 ),
                 CfnResource(
-                    logical_id="FortiGate",
+                    logical_id="Appliance",
                     type="AWS::EC2::Instance",
                     properties={
                         "InstanceType": "c5.xlarge",
@@ -445,8 +445,8 @@ class TestAssembleJson:
                     description="VPC ID",
                 ),
                 CfnOutput(
-                    logical_id="FortiGateId",
-                    value={"ref": "FortiGate"},
+                    logical_id="ApplianceId",
+                    value={"ref": "Appliance"},
                     condition="IsHA",
                 ),
             ],

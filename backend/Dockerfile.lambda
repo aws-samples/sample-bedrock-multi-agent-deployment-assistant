@@ -26,7 +26,7 @@ FROM public.ecr.aws/lambda/python:3.12
 # Node.js — required by the Mermaid diagram validator (docs agent validate-fix loop)
 RUN dnf install -y nodejs npm && dnf clean all
 
-# cfn-guard — Layer 3 IaC validation (custom FortiGate policy rules)
+# cfn-guard — IaC compliance validation
 ARG CFN_GUARD_VERSION=3.2.0
 RUN curl -Lo /tmp/cfn-guard.tar.gz \
     "https://github.com/aws-cloudformation/cloudformation-guard/releases/download/${CFN_GUARD_VERSION}/cfn-guard-v3-x86_64-linux-latest.tar.gz" \

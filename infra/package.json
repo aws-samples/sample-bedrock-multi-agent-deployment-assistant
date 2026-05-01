@@ -1,8 +1,8 @@
 {
-  "name": "infra",
+  "name": "ai-deploy-infra",
   "version": "0.1.0",
   "bin": {
-    "infra": "bin/ai-lcm.js"
+    "infra": "bin/ai-deploy.js"
   },
   "scripts": {
     "build": "tsc",

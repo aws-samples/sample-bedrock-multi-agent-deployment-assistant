@@ -16,7 +16,7 @@ class LoggingCallbackHandler:
     """Route Strands agent events to the structured logger.
 
     Logs tool invocations and completed text at DEBUG level — silent in
-    production (INFO), visible when AI_LCM_DEBUG=true.
+    production (INFO), visible when AI_DEPLOY_DEBUG=true.
 
     Uses thread-local storage for the tool counter so concurrent agent
     invocations across threads do not cross-contaminate metrics.

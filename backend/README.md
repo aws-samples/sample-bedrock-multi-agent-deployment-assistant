@@ -2,7 +2,7 @@
 
 Python 3.12 / FastAPI / Strands Agents / AWS Bedrock
 
-AI-powered backend that orchestrates a 4-stage agent pipeline for FortiGate deployment lifecycle management.
+AI-powered backend that orchestrates a 4-stage agent pipeline for product deployment on AWS. Product-agnostic — driven by config.yaml and catalog.lock.yaml.
 
 ## Quick Start
 
@@ -22,7 +22,7 @@ Four sequential agents orchestrated via `strands.multiagent.GraphBuilder`:
 
 | Stage | Agent | Model | Purpose |
 |-------|-------|-------|---------|
-| 1 | **Interview** | Sonnet (planner) + Haiku (executor) | Collects FortiGate deployment requirements via interactive Q&A |
+| 1 | **Interview** | Sonnet (planner) + Haiku (executor) | Collects product deployment requirements via interactive Q&A |
 | 2 | **Design** | Sonnet | Generates 2-3 architecture options with Well-Architected evaluation |
 | 3 | **IaC** | Sonnet | Produces modular CloudFormation templates with validation |
 | 4 | **Documentation** | Sonnet | Generates user guide, threat model, and architecture diagram |
@@ -36,14 +36,14 @@ Long-running tasks (design, IaC, docs) are processed asynchronously:
 - **Production**: SQS FIFO queues → Lambda workers
 - **Local dev**: In-process background worker (no SQS needed)
 
-The backend auto-detects the mode: if `AI_LCM_SQS_DESIGN_QUEUE_URL` is set, tasks go to SQS. Otherwise, the local worker processes them.
+The backend auto-detects the mode: if `AI_DEPLOY_SQS_DESIGN_QUEUE_URL` is set, tasks go to SQS. Otherwise, the local worker processes them.
 
 ### Storage Backends
 
 | Backend | Config | Use Case |
 |---------|--------|----------|
-| `local` | `AI_LCM_STORAGE_BACKEND=local` | Development — JSON files in `.local-data/` |
-| `aws` | `AI_LCM_STORAGE_BACKEND=aws` | Production — DynamoDB metadata + S3 artifacts |
+| `local` | `AI_DEPLOY_STORAGE_BACKEND=local` | Development — JSON files in `.local-data/` |
+| `aws` | `AI_DEPLOY_STORAGE_BACKEND=aws` | Production — DynamoDB metadata + S3 artifacts |
 
 The storage interface is defined in `src/storage/protocol.py`. The factory in `src/storage/__init__.py` returns the correct backend based on config.
 
@@ -124,30 +124,30 @@ All endpoints require `tenant_id` as a query parameter (local dev) or JWT claim 
 
 ## Environment Variables
 
-All variables use the `AI_LCM_` prefix. Copy `.env.sample` to `.env` and configure.
+All variables use the `AI_DEPLOY_` prefix. Copy `.env.sample` to `.env` and configure.
 
 ### Required
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AI_LCM_AWS_REGION` | `us-east-1` | AWS region for Bedrock calls |
-| `AI_LCM_PRIMARY_MODEL_ID` | Claude Sonnet 4.5 | Bedrock model for design/IaC agents |
-| `AI_LCM_LIGHTWEIGHT_MODEL_ID` | Claude Haiku 4.5 | Bedrock model for interview executor |
-| `AI_LCM_STORAGE_BACKEND` | `local` | `local` or `aws` |
+| `AI_DEPLOY_AWS_REGION` | `us-east-1` | AWS region for Bedrock calls |
+| `AI_DEPLOY_PRIMARY_MODEL_ID` | Claude Sonnet 4.5 | Bedrock model for design/IaC agents |
+| `AI_DEPLOY_LIGHTWEIGHT_MODEL_ID` | Claude Haiku 4.5 | Bedrock model for interview executor |
+| `AI_DEPLOY_STORAGE_BACKEND` | `local` | `local` or `aws` |
 
 ### Optional
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AI_LCM_KNOWLEDGE_BASE_ID` | — | Bedrock KB ID (enables KB-grounded generation) |
-| `AI_LCM_GUARDRAIL_ID` | — | Bedrock Guardrail ID |
-| `AI_LCM_COGNITO_USER_POOL_ID` | — | Enables JWT auth when set |
-| `AI_LCM_COGNITO_CLIENT_ID` | — | Cognito app client ID |
-| `AI_LCM_SQS_DESIGN_QUEUE_URL` | — | SQS queue (falls back to local worker) |
-| `AI_LCM_SQS_IAC_QUEUE_URL` | — | SQS queue (falls back to local worker) |
-| `AI_LCM_SQS_DOCS_QUEUE_URL` | — | SQS queue (falls back to local worker) |
-| `AI_LCM_DEBUG` | `false` | Debug logging (never `true` in production) |
-| `AI_LCM_CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed CORS origins |
+| `AI_DEPLOY_KNOWLEDGE_BASE_ID` | — | Bedrock KB ID (enables KB-grounded generation) |
+| `AI_DEPLOY_GUARDRAIL_ID` | — | Bedrock Guardrail ID |
+| `AI_DEPLOY_COGNITO_USER_POOL_ID` | — | Enables JWT auth when set |
+| `AI_DEPLOY_COGNITO_CLIENT_ID` | — | Cognito app client ID |
+| `AI_DEPLOY_SQS_DESIGN_QUEUE_URL` | — | SQS queue (falls back to local worker) |
+| `AI_DEPLOY_SQS_IAC_QUEUE_URL` | — | SQS queue (falls back to local worker) |
+| `AI_DEPLOY_SQS_DOCS_QUEUE_URL` | — | SQS queue (falls back to local worker) |
+| `AI_DEPLOY_DEBUG` | `false` | Debug logging (never `true` in production) |
+| `AI_DEPLOY_CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed CORS origins |
 
 See `.env.sample` for the full list including token limits and validation settings.
 
@@ -178,11 +178,11 @@ uv run ruff check src/ tests/              # lint
 
 ```bash
 # Production image
-docker build -t ai-lcm-backend .
-docker run -p 8000:8000 --env-file .env ai-lcm-backend
+docker build -t ai-deploy-backend .
+docker run -p 8000:8000 --env-file .env ai-deploy-backend
 
 # Lambda worker image
-docker build -f Dockerfile.lambda -t ai-lcm-lambda .
+docker build -f Dockerfile.lambda -t ai-deploy-lambda .
 ```
 
 The production image uses `tini` as PID 1 for proper signal handling, runs as non-root (uid 65532), and includes Node.js for Mermaid diagram validation.

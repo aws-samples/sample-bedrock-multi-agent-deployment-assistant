@@ -116,7 +116,7 @@ def handler(event, context):
     # Publish CloudWatch metrics
     cw = _get_cw()
     cw.put_metric_data(
-        Namespace="AI-LCM",
+        Namespace="AI-Deploy",
         MetricData=[
             {
                 "MetricName": "WsActiveConnections",

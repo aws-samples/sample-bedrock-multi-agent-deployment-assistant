@@ -7,6 +7,7 @@ without credentials or network access.
 import json
 from unittest.mock import MagicMock, patch
 
+from src.services.kb_provider import KBSearchResult, NullKBProvider
 
 
 # ===================================================================
@@ -18,144 +19,106 @@ class TestKbSearch:
     """Tests for src.tools.kb_search.kb_search."""
 
     def test_returns_fallback_when_no_knowledge_base(self):
-        """kb_search returns fallback message when knowledge_base_id is None."""
-        with patch("src.tools.kb_search.settings") as mock_settings:
-            mock_settings.knowledge_base_id = None
-            mock_settings.aws_region = "us-east-1"
+        """kb_search returns fallback message when provider is unavailable."""
+        with patch("src.tools.kb_search.get_kb_provider", return_value=NullKBProvider()):
             from src.tools.kb_search import kb_search
 
             result = kb_search(query="test query")
             assert "not configured" in result.lower()
-            assert "built-in" in result.lower()
 
     def test_returns_fallback_when_knowledge_base_empty(self):
-        """kb_search returns fallback message when knowledge_base_id is empty string."""
-        with patch("src.tools.kb_search.settings") as mock_settings:
-            mock_settings.knowledge_base_id = ""
-            mock_settings.aws_region = "us-east-1"
+        """kb_search returns fallback message when provider is unavailable."""
+        with patch("src.tools.kb_search.get_kb_provider", return_value=NullKBProvider()):
             from src.tools.kb_search import kb_search
 
             result = kb_search(query="test query")
             assert "not configured" in result.lower()
 
-    @patch("src.tools.kb_search.boto3")
-    def test_returns_formatted_results(self, mock_boto3):
+    def test_returns_formatted_results(self):
         """kb_search formats results from knowledge base."""
-        mock_client = MagicMock()
-        mock_boto3.client.return_value = mock_client
-        mock_client.retrieve.return_value = {
-            "retrievalResults": [
-                {
-                    "content": {"text": "FortiGate best practices..."},
-                    "score": 0.95,
-                    "location": {
-                        "s3Location": {"uri": "s3://bucket/docs/best-practices.pdf"}
-                    },
-                },
-                {
-                    "content": {"text": "Hub-spoke topology guide..."},
-                    "score": 0.88,
-                    "location": {
-                        "s3Location": {"uri": "s3://bucket/docs/topology.pdf"}
-                    },
-                },
-            ]
-        }
+        mock_provider = MagicMock()
+        mock_provider.is_available = True
+        mock_provider.search.return_value = [
+            KBSearchResult(
+                text="Best practices for deployment...",
+                source_uri="s3://bucket/docs/best-practices.pdf",
+                score=0.95,
+            ),
+            KBSearchResult(
+                text="Hub-spoke topology guide...",
+                source_uri="s3://bucket/docs/topology.pdf",
+                score=0.88,
+            ),
+        ]
 
-        with patch("src.tools.kb_search.settings") as mock_settings:
-            mock_settings.knowledge_base_id = "kb-test-123"
-            mock_settings.aws_region = "us-east-1"
+        with patch("src.tools.kb_search.get_kb_provider", return_value=mock_provider):
             from src.tools.kb_search import kb_search
 
-            result = kb_search(query="FortiGate deployment")
+            result = kb_search(query="deployment best practices")
 
-        assert "FortiGate best practices" in result
+        assert "Best practices" in result
         assert "Hub-spoke topology guide" in result
         assert "0.95" in result
         assert "---" in result  # separator between results
 
-    @patch("src.tools.kb_search.boto3")
-    def test_returns_no_results_message(self, mock_boto3):
+    def test_returns_no_results_message(self):
         """kb_search returns appropriate message when no results found."""
-        mock_client = MagicMock()
-        mock_boto3.client.return_value = mock_client
-        mock_client.retrieve.return_value = {"retrievalResults": []}
+        mock_provider = MagicMock()
+        mock_provider.is_available = True
+        mock_provider.search.return_value = []
 
-        with patch("src.tools.kb_search.settings") as mock_settings:
-            mock_settings.knowledge_base_id = "kb-test-123"
-            mock_settings.aws_region = "us-east-1"
+        with patch("src.tools.kb_search.get_kb_provider", return_value=mock_provider):
             from src.tools.kb_search import kb_search
 
             result = kb_search(query="nonexistent topic")
 
         assert "no results" in result.lower()
 
-    @patch("src.tools.kb_search.boto3")
-    def test_uses_correct_max_results(self, mock_boto3):
-        """kb_search passes max_results to the API."""
-        mock_client = MagicMock()
-        mock_boto3.client.return_value = mock_client
-        mock_client.retrieve.return_value = {"retrievalResults": []}
+    def test_uses_correct_max_results(self):
+        """kb_search passes max_results to the provider."""
+        mock_provider = MagicMock()
+        mock_provider.is_available = True
+        mock_provider.search.return_value = []
 
-        with patch("src.tools.kb_search.settings") as mock_settings:
-            mock_settings.knowledge_base_id = "kb-test-123"
-            mock_settings.aws_region = "us-east-1"
+        with patch("src.tools.kb_search.get_kb_provider", return_value=mock_provider):
             from src.tools.kb_search import kb_search
 
             kb_search(query="test", max_results=3)
 
-        call_kwargs = mock_client.retrieve.call_args[1]
-        vector_config = call_kwargs["retrievalConfiguration"]["vectorSearchConfiguration"]
-        assert vector_config["numberOfResults"] == 3
+        mock_provider.search.assert_called_once_with("test", max_results=3)
 
-    @patch("src.tools.kb_search.boto3")
-    def test_handles_missing_source_location(self, mock_boto3):
-        """kb_search handles results without s3Location gracefully."""
-        mock_client = MagicMock()
-        mock_boto3.client.return_value = mock_client
-        mock_client.retrieve.return_value = {
-            "retrievalResults": [
-                {
-                    "content": {"text": "Some content"},
-                    "score": 0.9,
-                    "location": {},
-                }
-            ]
-        }
+    def test_handles_missing_source_location(self):
+        """kb_search handles results without known source gracefully."""
+        mock_provider = MagicMock()
+        mock_provider.is_available = True
+        mock_provider.search.return_value = [
+            KBSearchResult(
+                text="Some content",
+                source_uri="",
+                score=0.9,
+            ),
+        ]
 
-        with patch("src.tools.kb_search.settings") as mock_settings:
-            mock_settings.knowledge_base_id = "kb-test-123"
-            mock_settings.aws_region = "us-east-1"
+        with patch("src.tools.kb_search.get_kb_provider", return_value=mock_provider):
             from src.tools.kb_search import kb_search
 
             result = kb_search(query="test")
 
         assert "Some content" in result
-        assert "unknown source" in result
 
-    @patch("src.tools.kb_search.boto3")
-    def test_skips_empty_content(self, mock_boto3):
-        """kb_search skips results with empty text."""
-        mock_client = MagicMock()
-        mock_boto3.client.return_value = mock_client
-        mock_client.retrieve.return_value = {
-            "retrievalResults": [
-                {
-                    "content": {"text": ""},
-                    "score": 0.5,
-                    "location": {},
-                },
-                {
-                    "content": {"text": "Valid content"},
-                    "score": 0.8,
-                    "location": {},
-                },
-            ]
-        }
+    def test_skips_empty_content(self):
+        """kb_search skips results with empty text (provider already filters these)."""
+        mock_provider = MagicMock()
+        mock_provider.is_available = True
+        mock_provider.search.return_value = [
+            KBSearchResult(
+                text="Valid content",
+                source_uri="s3://b/x/y/z.pdf",
+                score=0.8,
+            ),
+        ]
 
-        with patch("src.tools.kb_search.settings") as mock_settings:
-            mock_settings.knowledge_base_id = "kb-test-123"
-            mock_settings.aws_region = "us-east-1"
+        with patch("src.tools.kb_search.get_kb_provider", return_value=mock_provider):
             from src.tools.kb_search import kb_search
 
             result = kb_search(query="test")

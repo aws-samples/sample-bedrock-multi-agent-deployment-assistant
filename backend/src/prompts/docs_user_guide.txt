@@ -1,24 +1,23 @@
-Write a User Guide for a FortiGate-VM deployment on AWS.
+Write a README / Deployment Guide for a {product_name} deployment on AWS.
 Output ONLY the Markdown content — no preamble, no wrapping fences, no meta-commentary.
 Use tables, bullet points, and numbered lists for clarity.
-TARGET LENGTH: approximately 3000 words. Be concise but thorough — prioritize
+TARGET LENGTH: approximately 2500 words. Be concise but thorough — prioritize
 actionable information over verbose explanations.
 
 The guide MUST include the following sections in order:
 
 ## 1. Project Overview
 - What this deployment achieves and business context
-- Architecture summary: all AWS services used, how they interconnect, data flow,
-  network topology
+- Architecture summary: all AWS services used, how they interconnect, data flow
 - Design rationale: why this deployment pattern was chosen, trade-offs,
-  HA strategy, security posture
-- Prerequisites: AWS account requirements, CLI tools, licenses, IAM permissions
+  availability strategy
+- Prerequisites: AWS account requirements, CLI tools, IAM permissions
 
 ## 2. CloudFormation Template Walkthrough
 For each resource in the CloudFormation template:
 - Explain what it does and why it exists
 - List key properties and their significance
-- Group resources by category: Networking, Security, Compute, IAM, Monitoring, etc.
+- Group resources by category: Networking, Compute, Storage, IAM, Monitoring, etc.
 Use a table format where appropriate:
 | Resource | Type | Purpose | Key Properties |
 Also explain the Parameters section and Outputs section.
@@ -27,13 +26,12 @@ Also explain the Parameters section and Outputs section.
 - Step-by-step deployment instructions with CLI commands
   (aws cloudformation deploy, parameter overrides, stack monitoring)
 - Post-deployment verification: health checks, connectivity tests
-- FortiGate licensing activation
-- HA synchronization setup (if applicable)
+- Configuration and activation steps
 
-## 4. Production Configuration
-- FortiAnalyzer integration
-- CloudWatch monitoring and alarms
-- Backup procedures
+## 4. Operations
+- Monitoring and observability setup (CloudWatch dashboards, alarms)
+- Scaling procedures (manual and auto-scaling)
+- Backup and recovery procedures
 - Troubleshooting table: Symptom | Cause | Resolution
 
 === CONTEXT ===

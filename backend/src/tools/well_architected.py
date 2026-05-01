@@ -1,6 +1,6 @@
-"""AWS Well-Architected offline assessment for FortiGate deployments.
+"""AWS Well-Architected offline assessment for appliance deployments.
 
-Provides pillar-by-pillar evaluation of FortiGate architecture designs
+Provides pillar-by-pillar evaluation of architecture designs
 without requiring an AWS Well-Architected Tool workload.
 """
 
@@ -17,20 +17,19 @@ def evaluate_design_against_wa(
     use_case: str,
     ha_mode: str = "active-passive",
 ) -> str:
-    """Evaluate a FortiGate design against Well-Architected pillars (offline analysis).
+    """Evaluate a design against Well-Architected pillars (offline analysis).
 
     This performs a local assessment without creating a WA workload.
     Useful for quick feedback during design generation.
 
     Args:
         design_summary: Architecture summary from the design agent.
-        use_case: Deployment use case (sd-wan, east-west, egress).
+        use_case: Deployment use case.
         ha_mode: HA mode (active-passive, single).
 
     Returns:
         Markdown assessment against the 6 WA pillars.
     """
-    # Pillar-specific checks based on FortiGate deployment patterns
     checks = {
         "Security": [],
         "Reliability": [],
@@ -49,8 +48,8 @@ def evaluate_design_against_wa(
         else "REVIEW: Ensure data-in-transit encryption (IPSec/TLS)"
     )
     checks["Security"].append(
-        "PASS: HA provides security service continuity" if ha_mode == "active-passive"
-        else "RISK: Single instance — no failover for security inspection"
+        "PASS: HA provides service continuity" if ha_mode == "active-passive"
+        else "RISK: Single instance — no failover"
     )
     has_sg = "security group" in summary_lower or "sg" in summary_lower
     checks["Security"].append(
@@ -70,10 +69,10 @@ def evaluate_design_against_wa(
     )
 
     # Performance
-    if "gwlb" in summary_lower:
-        checks["Performance Efficiency"].append("PASS: GWLB provides horizontal scaling")
-    elif use_case == "east-west":
-        checks["Performance Efficiency"].append("REVIEW: Consider GWLB for scalable east-west inspection")
+    if "gwlb" in summary_lower or "load balancer" in summary_lower:
+        checks["Performance Efficiency"].append("PASS: Load balancing provides horizontal scaling")
+    elif "auto scaling" in summary_lower:
+        checks["Performance Efficiency"].append("PASS: Auto scaling configured")
     else:
         checks["Performance Efficiency"].append("PASS: Architecture appropriate for use case")
 
@@ -81,22 +80,22 @@ def evaluate_design_against_wa(
     has_reserved = "reserved" in summary_lower or "savings plan" in summary_lower
     checks["Cost Optimization"].append(
         "PASS: Reserved capacity considered" if has_reserved
-        else "REVIEW: Evaluate reserved instances for FortiGate VMs"
+        else "REVIEW: Evaluate reserved instances or savings plans"
     )
     if ha_mode == "active-passive":
-        checks["Cost Optimization"].append("INFO: Passive instance incurs cost — consider BYOL licensing")
+        checks["Cost Optimization"].append("INFO: Passive instance incurs cost — consider licensing options")
 
     # Operational Excellence
     checks["Operational Excellence"].append(
-        "REVIEW: Ensure FortiManager integration for centralized management"
+        "REVIEW: Ensure centralized management integration"
     )
     checks["Operational Excellence"].append(
-        "REVIEW: Configure FortiAnalyzer or CloudWatch for logging"
+        "REVIEW: Configure CloudWatch or third-party logging"
     )
 
     # Sustainability
     checks["Sustainability"].append(
-        "INFO: Right-size FortiGate VM instance type to match traffic volume"
+        "INFO: Right-size instance type to match workload volume"
     )
 
     # Format output

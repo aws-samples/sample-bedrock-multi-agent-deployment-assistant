@@ -43,7 +43,6 @@ export function InterviewChat({
 
   const seedAsRequirements: Record<string, unknown> = {
     use_cases: seed.use_cases,
-    bandwidth: seed.bandwidth,
     solution_description: seed.solution_description,
   };
 
@@ -97,7 +96,7 @@ export function InterviewChat({
         setMessages([
           {
             role: "assistant",
-            content: "Welcome! I'll help gather the technical requirements for your deployment. Let's start — what routing protocol are you planning to use?",
+            content: "Welcome! I'll help gather the technical requirements for your deployment. Let's start — what type of workload are you planning to deploy?",
           },
         ]);
       })

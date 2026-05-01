@@ -18,8 +18,8 @@ export class VpcConstruct extends Construct {
   constructor(scope: Construct, id: string, props?: VpcConstructProps) {
     super(scope, id);
 
-    this.vpc = new ec2.Vpc(this, "AiLcmVpc", {
-      vpcName: "ai-lcm-vpc",
+    this.vpc = new ec2.Vpc(this, "AiDeployVpc", {
+      vpcName: "ai-deploy-vpc",
       maxAzs: 2,
       natGateways: props?.natGateways ?? 2,
       subnetConfiguration: [
@@ -37,7 +37,7 @@ export class VpcConstruct extends Construct {
     });
 
     const flowLogGroup = new logs.LogGroup(this, "FlowLogGroup", {
-      logGroupName: "/ai-lcm/vpc-flow-logs",
+      logGroupName: "/ai-deploy/vpc-flow-logs",
       retention: logs.RetentionDays.SIX_MONTHS,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       encryptionKey: props?.encryptionKey,

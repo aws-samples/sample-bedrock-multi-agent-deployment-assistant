@@ -1,9 +1,9 @@
-from src.models.requirements import InterviewOutput, UseCases, RoutingProtocol, WorkloadResilience
+from src.models.requirements import InterviewOutput, UseCases, WorkloadResilience
 from src.models.design import (
     DesignOption,
     DesignRecommendation,
     VPCBlueprint,
-    FortiGateBlueprint,
+    ApplianceBlueprint,
     InterfaceBlueprint,
     KBReference,
     DeploymentParameters,
@@ -17,32 +17,32 @@ import pytest
 
 def test_interview_output():
     doc = InterviewOutput(
-        use_cases=[UseCases.SD_WAN, UseCases.INSPECTION],
-        cloud_routing_protocol=RoutingProtocol.BGP,
-        resilience=WorkloadResilience.HA_SINGLE_REGION_DUAL_ZONE,
-        bandwidth=5000.0,
+        use_cases=["realtime-inference", "training"],
+        gpu_budget="high",
+        availability_requirement="production-multi-az",
+        data_sensitivity="confidential",
         compliance=["soc2"],
-        solution_description="Deploy SD-WAN with inspection",
+        solution_description="Deploy real-time inference with training pipeline",
     )
-    assert UseCases.SD_WAN in doc.use_cases
-    assert doc.cloud_routing_protocol == RoutingProtocol.BGP
+    assert "realtime-inference" in doc.use_cases
+    assert doc.gpu_budget == "high"
 
 
 def _make_design_option(**overrides) -> DesignOption:
     """Helper to create a valid DesignOption with all required fields."""
     defaults = dict(
         name="Standard HA",
-        description="Active-Passive FortiGate cluster",
-        architecture_summary="Two FortiGate VMs in HA across dual AZ",
+        description="Active-Passive GPU inference cluster",
+        architecture_summary="Two GPU instances in HA across dual AZ",
         pros=["High availability", "Simple failover"],
         cons=["Higher cost", "Passive instance idle"],
         estimated_monthly_cost_usd=1500.0,
         security_posture_rating=4,
         complexity_rating=2,
         deployment_pattern="ha-dual-az",
-        use_case="inspection",
+        use_case="realtime-inference",
         ha_mode="active-passive",
-        fortigate_instance_type="c5.xlarge",
+        appliance_instance_type="g5.xlarge",
         aws_services=["VPC", "EC2", "ELB"],
         vpc_topology=[
             VPCBlueprint(
@@ -51,8 +51,8 @@ def _make_design_option(**overrides) -> DesignOption:
                 availability_zones=2,
             ),
         ],
-        fortigate_topology=[
-            FortiGateBlueprint(
+        appliance_topology=[
+            ApplianceBlueprint(
                 role="active",
                 vpc_role="security",
                 interfaces=[
@@ -75,15 +75,15 @@ def test_design_option():
     assert option.security_posture_rating == 4
     assert option.deployment_pattern == "ha-dual-az"
     assert len(option.vpc_topology) == 1
-    assert len(option.fortigate_topology) == 1
+    assert len(option.appliance_topology) == 1
 
 
 def test_design_option_interface_validation():
     """Interface subnet_role must exist in a VPC's subnet_roles."""
     with pytest.raises(ValueError, match="subnet_role"):
         _make_design_option(
-            fortigate_topology=[
-                FortiGateBlueprint(
+            appliance_topology=[
+                ApplianceBlueprint(
                     role="active",
                     vpc_role="security",
                     interfaces=[
@@ -114,7 +114,7 @@ def test_design_recommendation():
         options=options,
         recommended_option_index=1,
         rationale="Balanced option fits most use cases",
-        requirements_summary="SD-WAN with inspection, dual-AZ HA",
+        requirements_summary="Real-time inference with training, dual-AZ HA",
     )
     assert rec.recommended_option_index == 1
     assert len(rec.options) == 3
@@ -151,7 +151,7 @@ def test_design_task_status():
 
 
 def test_requirements_hash_stability():
-    reqs = {"use_cases": ["sd-wan"], "bandwidth": 5000}
+    reqs = {"use_cases": ["realtime-inference"], "gpu_budget": "high"}
     h1 = compute_requirements_hash(reqs)
     h2 = compute_requirements_hash(reqs)
     assert h1 == h2

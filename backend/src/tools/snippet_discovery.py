@@ -26,7 +26,7 @@ _SNIPPET_PREFIX = "snippets/cloudformation/"
 class SnippetInfo(BaseModel):
     """Metadata for a discovered CFT snippet."""
 
-    resource_type: str       # e.g., "vpc", "fortigate", "networking"
+    resource_type: str       # e.g., "vpc", "compute", "networking"
     filename: str            # e.g., "vpc-2az.yaml"
     s3_key: str              # Full S3 key
     s3_bucket: str
@@ -70,7 +70,7 @@ def discover_snippets(
 
     Scans s3://{bucket}/snippets/cloudformation/{resource_type}/*.yaml
 
-    Returns: { "vpc": [SnippetInfo(...)], "fortigate": [SnippetInfo(...)] }
+    Returns: { "vpc": [SnippetInfo(...)], "compute": [SnippetInfo(...)] }
     Empty dict when bucket is not configured or S3 is unreachable.
     """
     bucket = s3_bucket or settings.s3_knowledge_base_bucket

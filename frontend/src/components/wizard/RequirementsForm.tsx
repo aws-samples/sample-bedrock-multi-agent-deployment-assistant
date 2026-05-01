@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import type { RequirementsSeed, UseCases } from "@/lib/types";
+import type { RequirementsSeed } from "@/lib/types";
 import { StepContainer } from "./StepContainer";
 
 interface RequirementsFormProps {
@@ -11,18 +11,13 @@ interface RequirementsFormProps {
 }
 
 interface UseCaseOption {
-  value: UseCases;
+  value: string;
   label: string;
   available: boolean;
 }
 
-// Fallback used when the config endpoint is unreachable
-const DEFAULT_USE_CASES: UseCaseOption[] = [
-  { value: "sd-wan", label: "SD-WAN", available: true },
-  { value: "egress", label: "Egress", available: true },
-  { value: "ingress", label: "Ingress", available: true },
-  { value: "inspection", label: "Inspection", available: true },
-];
+// Empty fallback — use cases are loaded dynamically from the catalog API
+const DEFAULT_USE_CASES: UseCaseOption[] = [];
 
 const INPUT =
   "w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder:text-gray-400";
@@ -47,14 +42,13 @@ export function RequirementsForm({
   }, []);
 
   const [form, setForm] = useState<RequirementsSeed>({
-    use_cases: ["sd-wan"],
-    bandwidth: 1000,
+    use_cases: [],
     solution_description: "",
   });
 
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
-  function toggleUseCase(uc: UseCases) {
+  function toggleUseCase(uc: string) {
     setForm((prev) => {
       const current = prev.use_cases;
       if (current.includes(uc)) {
@@ -69,7 +63,6 @@ export function RequirementsForm({
     const errors: string[] = [];
     if (form.use_cases.length === 0) errors.push("Select at least one use case.");
     if (!form.solution_description.trim()) errors.push("Solution description is required.");
-    if (form.bandwidth <= 0) errors.push("Bandwidth must be greater than 0.");
 
     if (errors.length > 0) {
       setValidationErrors(errors);
@@ -127,22 +120,6 @@ export function RequirementsForm({
           />
         </div>
 
-        {/* Bandwidth */}
-        <div>
-          <label className="block text-sm font-medium text-gray-900 mb-1.5">
-            Bandwidth (Mbps)
-          </label>
-          <input
-            type="number"
-            min={1}
-            step={100}
-            value={form.bandwidth}
-            onChange={(e) =>
-              setForm((prev) => ({ ...prev, bandwidth: Number(e.target.value) }))
-            }
-            className={INPUT}
-          />
-        </div>
       </div>
     </StepContainer>
   );

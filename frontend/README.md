@@ -2,7 +2,7 @@
 
 Next.js 16 / React 19 / Tailwind CSS 4 / TypeScript 5
 
-Interactive wizard UI that guides users through the FortiGate deployment lifecycle: requirements gathering, design selection, IaC generation, and documentation.
+Interactive wizard UI that guides users through the product deployment lifecycle: requirements gathering, design selection, IaC generation, and documentation.
 
 ## Quick Start
 

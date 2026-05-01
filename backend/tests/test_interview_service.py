@@ -22,40 +22,40 @@ class TestPlanToProgress:
 
         plan = QuestionPlan(
             entries=[
-                PlannedQuestion(field_path="resilience", question_template="Resilience?", is_blocking=True),
+                PlannedQuestion(field_path="availability_requirement", question_template="Availability?", is_blocking=True),
             ],
         )
         progress = _plan_to_progress(plan, "Starting!")
         assert progress.complete is False
         assert progress.response_message == "Starting!"
         # validate_and_correct_completion recalculates missing from InterviewProgress schema
-        assert "resilience" in progress.missing_fields
+        assert "availability_requirement" in progress.missing_fields
 
     def test_all_blocking_answered_marks_complete(self):
         from src.services.interview import _plan_to_progress
 
         # validate_and_correct_completion checks actual InterviewProgress fields.
-        # Blocking base fields (minus seeds): resilience, cloud_routing_protocol
+        # Blocking base fields (minus seeds): availability_requirement, data_sensitivity
         plan = QuestionPlan(
             entries=[
                 PlannedQuestion(
-                    field_path="resilience",
-                    question_template="Resilience?",
+                    field_path="availability_requirement",
+                    question_template="Availability?",
                     is_blocking=True,
                     status="answered",
-                    answered_value="ha-single-region-dual-zone",
+                    answered_value="production-multi-az",
                 ),
                 PlannedQuestion(
-                    field_path="cloud_routing_protocol",
-                    question_template="Protocol?",
+                    field_path="data_sensitivity",
+                    question_template="Data sensitivity?",
                     is_blocking=True,
                     status="answered",
-                    answered_value="bgp",
+                    answered_value="confidential",
                 ),
             ],
             populated_fields={
-                "resilience": "ha-single-region-dual-zone",
-                "cloud_routing_protocol": "bgp",
+                "availability_requirement": "production-multi-az",
+                "data_sensitivity": "confidential",
             },
         )
         progress = _plan_to_progress(plan, "Done!")
@@ -71,88 +71,88 @@ class TestPlanToProgress:
         plan = QuestionPlan(
             entries=[
                 PlannedQuestion(
-                    field_path="sd-wan.role",
-                    question_template="Role?",
+                    field_path="realtime-inference.model_size_category",
+                    question_template="Model size?",
                     status="answered",
-                    answered_value="hub",
+                    answered_value="large",
                     is_blocking=True,
                 ),
                 PlannedQuestion(
-                    field_path="sd-wan.number_of_branches",
-                    question_template="Branches?",
+                    field_path="realtime-inference.target_latency_ms",
+                    question_template="Target latency?",
                     status="answered",
-                    answered_value=10,
+                    answered_value=50,
                     is_blocking=True,
                 ),
             ],
-            populated_fields={"sd-wan": {"role": "hub", "number_of_branches": 10}},
+            populated_fields={"realtime-inference": {"model_size_category": "large", "target_latency_ms": 50}},
         )
         progress = _plan_to_progress(plan, "All done")
-        assert progress.use_case_fields["role"] == "hub"
-        assert progress.use_case_fields["number_of_branches"] == 10
+        assert progress.use_case_fields["model_size_category"] == "large"
+        assert progress.use_case_fields["target_latency_ms"] == 50
 
     def test_includes_auto_filled_use_case_fields(self):
         from src.services.interview import _plan_to_progress
 
         plan = QuestionPlan(
             entries=[],
-            auto_filled={"sd-wan.overlay_strategy": "ipsec"},
+            auto_filled={"realtime-inference.model_framework": "tensorrt"},
             populated_fields={},
         )
         progress = _plan_to_progress(plan, "Hi")
-        assert progress.use_case_fields.get("overlay_strategy") == "ipsec"
+        assert progress.use_case_fields.get("model_framework") == "tensorrt"
 
     def test_populates_base_fields(self):
         from src.services.interview import _plan_to_progress
 
         plan = QuestionPlan(
             entries=[
-                PlannedQuestion(field_path="bandwidth", question_template="BW?", status="answered",
-                                answered_value=5000, is_blocking=True),
+                PlannedQuestion(field_path="gpu_budget", question_template="GPU budget?", status="answered",
+                                answered_value="high", is_blocking=True),
             ],
-            populated_fields={"bandwidth": 5000, "cloud_routing_protocol": "bgp"},
+            populated_fields={"gpu_budget": "high", "availability_requirement": "production-multi-az"},
         )
         progress = _plan_to_progress(plan, "Good")
-        assert progress.bandwidth == 5000
+        assert progress.gpu_budget == "high"
 
-    def test_invalid_enum_value_coerced_to_none(self):
-        """LLM-parsed values that don't match enum choices should not crash."""
+    def test_invalid_enum_value_reverted(self):
+        """LLM-parsed values that don't match catalog choices are reverted."""
         from src.services.interview import _plan_to_progress
 
         plan = QuestionPlan(
             entries=[
                 PlannedQuestion(
-                    field_path="resilience",
-                    question_template="Resilience?",
+                    field_path="gpu_budget",
+                    question_template="Budget?",
                     is_blocking=True,
                     status="answered",
-                    answered_value="multi-az",  # Invalid enum value
+                    answered_value="super-duper",  # Not a valid option
                 ),
             ],
-            populated_fields={"resilience": "multi-az"},
+            populated_fields={"gpu_budget": "super-duper"},
         )
-        # Should NOT raise — invalid enum is coerced to None
+        # Invalid value is reverted — field removed from populated
         progress = _plan_to_progress(plan, "Noted")
-        assert progress.resilience is None
         assert progress.complete is False
 
-    def test_invalid_routing_protocol_coerced_to_none(self):
+    def test_invalid_availability_requirement_reverted(self):
         from src.services.interview import _plan_to_progress
 
         plan = QuestionPlan(
             entries=[
                 PlannedQuestion(
-                    field_path="cloud_routing_protocol",
-                    question_template="Protocol?",
+                    field_path="availability_requirement",
+                    question_template="Availability?",
                     is_blocking=True,
                     status="answered",
-                    answered_value="ospf",  # Not a valid RoutingProtocol
+                    answered_value="five-nines",  # Not a valid option
                 ),
             ],
-            populated_fields={"cloud_routing_protocol": "ospf"},
+            populated_fields={"availability_requirement": "five-nines"},
         )
         progress = _plan_to_progress(plan, "Noted")
-        assert progress.cloud_routing_protocol is None
+        # Field was reverted because "five-nines" isn't a valid option
+        assert progress.complete is False
 
 
 # ===================================================================
@@ -161,23 +161,21 @@ class TestPlanToProgress:
 
 
 class TestSafeEnum:
-    def test_valid_value(self):
-        from src.models.requirements import WorkloadResilience
+    def test_valid_value_passes_through(self):
         from src.services.interview import _safe_enum
 
-        assert _safe_enum(WorkloadResilience, "ha-single-region-dual-zone") == WorkloadResilience.HA_SINGLE_REGION_DUAL_ZONE
+        assert _safe_enum(None, "ha-single-region-dual-zone") == "ha-single-region-dual-zone"
 
-    def test_invalid_value_returns_none(self):
-        from src.models.requirements import WorkloadResilience
+    def test_any_string_passes_through(self):
+        """_safe_enum is a pass-through; field-level validation happens in _plan_to_progress."""
         from src.services.interview import _safe_enum
 
-        assert _safe_enum(WorkloadResilience, "multi-az") is None
+        assert _safe_enum(None, "multi-az") == "multi-az"
 
     def test_none_returns_none(self):
-        from src.models.requirements import RoutingProtocol
         from src.services.interview import _safe_enum
 
-        assert _safe_enum(RoutingProtocol, None) is None
+        assert _safe_enum(None, None) is None
 
 
 # ===================================================================
@@ -192,18 +190,18 @@ class TestExtractGatheredFields:
 
         progress = InterviewProgress(
             response_message="test",
-            bandwidth=5000.0,
+            gpu_budget="high",
             complete=True,
             missing_fields=[],
-            use_case_fields={"role": "hub"},
+            use_case_fields={"model_size_category": "large"},
         )
         gathered = _extract_gathered_fields(progress)
         assert "response_message" not in gathered
         assert "complete" not in gathered
         assert "missing_fields" not in gathered
-        assert gathered["bandwidth"] == 5000.0
+        assert gathered["gpu_budget"] == "high"
         # use_case_fields are flattened
-        assert gathered["role"] == "hub"
+        assert gathered["model_size_category"] == "large"
 
 
 # ===================================================================
@@ -215,21 +213,22 @@ class TestParseUseCases:
     def test_parses_single(self):
         from src.services.interview import _parse_use_cases
 
-        result = _parse_use_cases("sd-wan")
+        result = _parse_use_cases("realtime-inference")
         assert len(result) == 1
-        assert result[0].value == "sd-wan"
+        assert result[0] == "realtime-inference"
 
     def test_parses_comma_separated(self):
         from src.services.interview import _parse_use_cases
 
-        result = _parse_use_cases("sd-wan, inspection")
+        result = _parse_use_cases("realtime-inference, training")
         assert len(result) == 2
 
-    def test_skips_invalid(self):
+    def test_parses_all_values(self):
         from src.services.interview import _parse_use_cases
 
-        result = _parse_use_cases("sd-wan, invalid-case")
-        assert len(result) == 1
+        result = _parse_use_cases("realtime-inference, custom-case")
+        assert len(result) == 2
+        assert result[1] == "custom-case"
 
     def test_empty_returns_empty(self):
         from src.services.interview import _parse_use_cases
@@ -263,7 +262,7 @@ class TestInterviewChatEvents:
             message="start",
             tenant_id="t1",
             project_id="p1",
-            use_case="sd-wan",
+            use_case="realtime-inference",
         ):
             events.append(event)
 

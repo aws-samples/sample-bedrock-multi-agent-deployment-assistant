@@ -55,11 +55,11 @@ def build_parameter_defaults(
             key = f"{_normalise(vpc.role)}{_normalise(subnet.role)}"
             subnet_cidrs[key] = subnet.cidr
 
-    fgt_ips: dict[str, str] = {}
-    for fgt in params.fortigate_instances:
-        for iface in fgt.interfaces:
-            fgt_ips[_normalise(f"{fgt.name}{iface.port_name}")] = iface.private_ip
-            fgt_ips[_normalise(f"{fgt.role}{iface.port_name}")] = iface.private_ip
+    appliance_ips: dict[str, str] = {}
+    for inst in params.appliance_instances:
+        for iface in inst.interfaces:
+            appliance_ips[_normalise(f"{inst.name}{iface.port_name}")] = iface.private_ip
+            appliance_ips[_normalise(f"{inst.role}{iface.port_name}")] = iface.private_ip
 
     defaults: dict[str, str] = {}
 
@@ -107,20 +107,20 @@ def build_parameter_defaults(
                     matched = True
                     break
 
-        # --- FortiGate IPs ---
+        # --- Appliance IPs ---
         if not matched and ("ip" in norm or "address" in norm) and (
-            "fortigate" in norm or "fgt" in norm or "fortigate" in desc or "fgt" in desc
+            "appliance" in norm or "instance" in norm or "appliance" in desc
         ):
-            for fkey, fip in fgt_ips.items():
-                if fkey in norm:
-                    defaults[param_name] = fip
+            for akey, aip in appliance_ips.items():
+                if akey in norm:
+                    defaults[param_name] = aip
                     matched = True
                     break
 
         # --- Instance type ---
         if not matched and "instancetype" in norm:
-            if params.fortigate_instances:
-                defaults[param_name] = params.fortigate_instances[0].instance_type
+            if params.appliance_instances:
+                defaults[param_name] = params.appliance_instances[0].instance_type
                 matched = True
 
         # --- Project name ---

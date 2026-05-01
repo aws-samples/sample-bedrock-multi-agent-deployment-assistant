@@ -1,6 +1,6 @@
 # AWS Deployment Guide
 
-Deploy AI-LCM to AWS using CDK. This guide covers everything from initial setup to a running production environment.
+Deploy AI Deploy to AWS using CDK. This guide covers everything from initial setup to a running production environment.
 
 ## Prerequisites
 
@@ -110,21 +110,21 @@ First deployment takes 15-25 minutes (VPC, NAT gateways, ECS, CloudFront distrib
 After deployment, CDK prints stack outputs. Save these values:
 
 ```
-AiLcmStack.AlbDnsName           = ai-lcm-xxxx.us-east-1.elb.amazonaws.com
-AiLcmStack.FrontendUrl          = https://d1234abcdef.cloudfront.net
-AiLcmStack.DistributionId       = E1234ABCDEF
-AiLcmStack.WebSocketUrl         = wss://abc123.execute-api.us-east-1.amazonaws.com/prod
-AiLcmStack.UserPoolId           = us-east-1_XXXXXXXXX
-AiLcmStack.UserPoolClientId     = xxxxxxxxxxxxxxxxxxxxxxxxxx
-AiLcmStack.TableName            = ai-lcm-table-prod
-AiLcmStack.KnowledgeBaseBucketName = ai-lcm-s3-knowledgebase-xxxx
-AiLcmStack.ArtifactsBucketName  = ai-lcm-s3-artifacts-xxxx
+AiDeployStack.AlbDnsName           = ai-deploy-xxxx.us-east-1.elb.amazonaws.com
+AiDeployStack.FrontendUrl          = https://d1234abcdef.cloudfront.net
+AiDeployStack.DistributionId       = E1234ABCDEF
+AiDeployStack.WebSocketUrl         = wss://abc123.execute-api.us-east-1.amazonaws.com/prod
+AiDeployStack.UserPoolId           = us-east-1_XXXXXXXXX
+AiDeployStack.UserPoolClientId     = xxxxxxxxxxxxxxxxxxxxxxxxxx
+AiDeployStack.TableName            = ai-deploy-table-prod
+AiDeployStack.KnowledgeBaseBucketName = ai-deploy-s3-knowledgebase-xxxx
+AiDeployStack.ArtifactsBucketName  = ai-deploy-s3-artifacts-xxxx
 ```
 
 You can also retrieve these later:
 
 ```bash
-aws cloudformation describe-stacks --stack-name AiLcmStack --query 'Stacks[0].Outputs' --output table
+aws cloudformation describe-stacks --stack-name AiDeployStack --query 'Stacks[0].Outputs' --output table
 ```
 
 ## Step 5: Configure Frontend Environment
@@ -184,21 +184,21 @@ The `custom:tenant_id` attribute controls data isolation — users in different 
 
 ## Step 7: (Optional) Knowledge Base Setup
 
-The platform works without a Knowledge Base, but design quality improves significantly with FortiGate reference documentation.
+The platform works without a Knowledge Base, but design quality improves significantly with product reference documentation.
 
 ### 7.1 Upload Documents
 
 ```bash
 KB_BUCKET=<KnowledgeBaseBucketName from outputs>
 
-aws s3 cp fortigate-admin-guide.pdf s3://$KB_BUCKET/
-aws s3 cp fortigate-best-practices.pdf s3://$KB_BUCKET/
+aws s3 cp product-admin-guide.pdf s3://$KB_BUCKET/
+aws s3 cp product-best-practices.pdf s3://$KB_BUCKET/
 ```
 
 ### 7.2 Create Knowledge Base in Bedrock
 
 1. Open [Bedrock console](https://console.aws.amazon.com/bedrock/) → **Knowledge bases** → **Create**
-2. Name: `ai-lcm-fortigate-kb`
+2. Name: `ai-deploy-product-kb`
 3. Data source: S3, select the `KnowledgeBaseBucketName` bucket
 4. Embedding model: **Titan Embeddings V2**
 5. Vector store: let Bedrock create an OpenSearch Serverless collection (default)
@@ -211,23 +211,23 @@ After creation, note the Knowledge Base ID and update the ECS task environment:
 ```bash
 # Update the ECS task definition with the KB ID
 aws ecs update-service \
-  --cluster ai-lcm-cluster-prod \
+  --cluster ai-deploy-cluster-prod \
   --service <ServiceName> \
   --force-new-deployment \
   --task-definition $(
     aws ecs describe-services \
-      --cluster ai-lcm-cluster-prod \
+      --cluster ai-deploy-cluster-prod \
       --services <ServiceName> \
       --query 'services[0].taskDefinition' \
       --output text
   )
 ```
 
-Or set the env var in the CDK stack by adding to `ai-lcm-stack.ts`:
+Or set the env var in the CDK stack by adding to `ai-deploy-stack.ts`:
 
 ```typescript
 ecsConstruct.service.taskDefinition.defaultContainer?.addEnvironment(
-  "AI_LCM_KNOWLEDGE_BASE_ID",
+  "AI_DEPLOY_KNOWLEDGE_BASE_ID",
   "YOUR_KB_ID",
 );
 ```
@@ -335,7 +335,7 @@ aws s3 rb s3://<KnowledgeBaseBucketName> --force
 Check container logs:
 
 ```bash
-aws logs tail /ecs/ai-lcm-prod --follow
+aws logs tail /ecs/ai-deploy-prod --follow
 ```
 
 Common causes: missing env vars, Bedrock access not granted, incorrect region.
@@ -349,7 +349,7 @@ The backend circuit breaker trips after repeated Bedrock failures. Check:
 
 ### Frontend shows CORS errors
 
-The CDK stack auto-configures `AI_LCM_CORS_ORIGINS` to the CloudFront domain. If using a custom domain, add it via CDK context or update the ECS environment variable.
+The CDK stack auto-configures `AI_DEPLOY_CORS_ORIGINS` to the CloudFront domain. If using a custom domain, add it via CDK context or update the ECS environment variable.
 
 ### DLQ messages accumulating
 

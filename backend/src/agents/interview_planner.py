@@ -21,10 +21,7 @@ from src.models.interview_plan import (
     QuestionPlanOutput,
 )
 from src.models.requirements import (
-    USE_CASE_REGISTRY,
-    RoutingProtocol,
     UseCases,
-    WorkloadResilience,
     get_missing_fields_schema,
     get_seed_context_block,
 )
@@ -36,23 +33,32 @@ PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 _plan_prompt_template = (PROMPTS_DIR / "interview_plan.txt").read_text()
 _replan_prompt_template = (PROMPTS_DIR / "interview_replan.txt").read_text()
 
-# Maps field_path → (enum class, expected_type). Add new enum fields here.
-_FIELD_ENUM_REGISTRY: dict[str, tuple[type, str]] = {
-    "cloud_routing_protocol": (RoutingProtocol, "enum"),
-    "resilience": (WorkloadResilience, "enum"),
-    "use_cases": (UseCases, "list_str"),
-}
-
 
 def _build_enum_reference() -> str:
-    """Build the enum values reference block from actual Python enum classes."""
+    """Build the enum values reference block from the catalog.
+
+    Reads blocking base fields that have options (enum type) from the catalog
+    and formats them for the LLM prompt.
+    """
+    from src.services.catalog_loader import get_catalog
+    catalog = get_catalog()
+
     lines: list[str] = []
-    for field_path, (enum_cls, expected_type) in _FIELD_ENUM_REGISTRY.items():
-        values = [e.value for e in enum_cls]
+    for field in catalog.get_blocking_base_fields():
+        if field.options:
+            lines.append(
+                f"- **{field.name}** (`expected_type: \"enum\"`): "
+                f"`{json.dumps(field.options)}`"
+            )
+
+    # Also include use case values
+    uc_values = catalog.get_use_case_values()
+    if uc_values:
         lines.append(
-            f"- **{field_path}** (`expected_type: \"{expected_type}\"`): "
-            f"`{json.dumps(values)}`"
+            f"- **use_cases** (`expected_type: \"list_str\"`): "
+            f"`{json.dumps(uc_values)}`"
         )
+
     return "\n".join(lines)
 
 
@@ -62,19 +68,23 @@ def _build_enum_reference() -> str:
 
 
 def _search_kb_for_planning(
-    use_cases: list[UseCases], seed_data: dict
+    use_cases: list, seed_data: dict
 ) -> list[KBResult]:
     """Level-1 hierarchical KB search: architecture + components per use case."""
+    from src.services.catalog_loader import get_catalog
+    catalog = get_catalog()
+
     results: list[KBResult] = []
     desc = seed_data.get("solution_description", "")
     for uc in use_cases:
-        if uc == UseCases.NOTKNOWN:
+        uc_val = uc.value if hasattr(uc, "value") else str(uc)
+        if uc_val == "notknown":
             continue
-        query = f"FortiGate {uc.value} deployment architecture AWS {desc}".strip()
+        query = catalog.format_search_query(uc_val) + f" {desc}".strip()
         results.extend(
             kb_search_filtered(
                 query,
-                use_case=uc.value,
+                use_case=uc_val,
                 document_type=["architecture", "components"],
                 max_results=5,
             )
@@ -83,20 +93,24 @@ def _search_kb_for_planning(
 
 
 def _search_kb_for_replan(
-    use_cases: list[UseCases],
+    use_cases: list,
     deviation_reason: str,
     deployment_type: str | None = None,
 ) -> list[KBResult]:
     """Level-3 KB search: narrowed by deployment type if known."""
+    from src.services.catalog_loader import get_catalog
+    catalog = get_catalog()
+
     results: list[KBResult] = []
     for uc in use_cases:
-        if uc == UseCases.NOTKNOWN:
+        uc_val = uc.value if hasattr(uc, "value") else str(uc)
+        if uc_val == "notknown":
             continue
-        query = f"FortiGate {uc.value} {deviation_reason}"
+        query = catalog.format_search_query(uc_val) + f" {deviation_reason}"
         results.extend(
             kb_search_filtered(
                 query,
-                use_case=uc.value,
+                use_case=uc_val,
                 deployment_type=deployment_type,
                 max_results=5,
             )
@@ -120,41 +134,50 @@ def _format_kb_results(results: list[KBResult]) -> str:
 
 
 def _build_planning_prompt(
-    use_cases: list[UseCases],
+    use_cases: list,
     seed_data: dict,
     kb_results: list[KBResult],
     populated_fields: dict | None,
 ) -> str:
     """Build the system prompt for Sonnet plan generation."""
+    from src.services.catalog_loader import get_catalog
+    catalog = get_catalog()
+
     schema = get_missing_fields_schema(use_cases, populated_fields or {})
     schema_text = json.dumps(schema.get("properties", {}), indent=2)
 
-    return _plan_prompt_template.format(
-        seed_context_block=get_seed_context_block(use_cases, seed_data),
-        kb_results=_format_kb_results(kb_results),
-        missing_fields_schema=schema_text,
-        enum_reference=_build_enum_reference(),
-    )
+    format_vars = {
+        **catalog.get_prompt_context(),
+        "seed_context_block": get_seed_context_block(use_cases, seed_data),
+        "kb_results": _format_kb_results(kb_results),
+        "missing_fields_schema": schema_text,
+        "enum_reference": _build_enum_reference(),
+    }
+    return _plan_prompt_template.format(**format_vars)
 
 
 def _enrich_plan(
     output: QuestionPlanOutput,
-    use_cases: list[UseCases],
+    use_cases: list,
     seed_data: dict,
 ) -> QuestionPlan:
     """Convert LLM output to a fully enriched QuestionPlan.
 
-    Adds is_blocking/is_optional from USE_CASE_REGISTRY (the LLM doesn't
+    Adds is_blocking/is_optional from the catalog (the LLM doesn't
     determine these — the schema does).
     """
-    # Build a set of optional field paths from the registry
+    from src.services.catalog_loader import get_catalog
+    catalog = get_catalog()
+
+    # Build a set of optional field paths from the catalog
     optional_paths: set[str] = {"user_info", "user_info.name", "user_info.experience_on_cloud", "compliance"}
     for uc in use_cases:
-        spec = USE_CASE_REGISTRY.get(uc)
+        uc_val = uc.value if hasattr(uc, "value") else str(uc)
+        spec = catalog.get_use_case_spec(uc_val)
         if not spec:
             continue
         for f in spec.optional_fields:
-            optional_paths.add(f"{uc.value}.{f}")
+            optional_paths.add(f"{uc_val}.{f}")
 
     entries: list[PlannedQuestion] = []
     for q in output.questions:
@@ -192,7 +215,7 @@ def _invoke_planner(agent: Agent, prompt: str) -> object:
 
 def generate_plan(
     seed_data: dict,
-    use_cases: list[UseCases],
+    use_cases: list,
     populated_fields: dict | None = None,
     tenant_id: str = "default",
 ) -> tuple[QuestionPlan, str]:
@@ -243,7 +266,7 @@ def generate_plan(
 def replan(
     current_plan: QuestionPlan,
     deviation_reason: str,
-    use_cases: list[UseCases],
+    use_cases: list,
     tenant_id: str = "default",
 ) -> tuple[QuestionPlan, str]:
     """Re-plan after a curveball. Preserves answered entries, replaces pending ones.
@@ -258,13 +281,17 @@ def replan(
     remaining_schema = get_missing_fields_schema(use_cases, current_plan.populated_fields)
     schema_text = json.dumps(remaining_schema.get("properties", {}), indent=2)
 
-    system_prompt = _replan_prompt_template.format(
-        deviation_reason=deviation_reason,
-        populated_fields=json.dumps(current_plan.populated_fields, indent=2),
-        kb_results=_format_kb_results(kb_results),
-        remaining_fields_schema=schema_text,
-        enum_reference=_build_enum_reference(),
-    )
+    from src.services.catalog_loader import get_catalog
+    catalog = get_catalog()
+    format_vars = {
+        **catalog.get_prompt_context(),
+        "deviation_reason": deviation_reason,
+        "populated_fields": json.dumps(current_plan.populated_fields, indent=2),
+        "kb_results": _format_kb_results(kb_results),
+        "remaining_fields_schema": schema_text,
+        "enum_reference": _build_enum_reference(),
+    }
+    system_prompt = _replan_prompt_template.format(**format_vars)
 
     agent = Agent(
         name="interview-replanner",
@@ -305,7 +332,7 @@ def replan(
 
 
 def _fallback_plan(
-    use_cases: list[UseCases],
+    use_cases: list,
     seed_data: dict,
     populated_fields: dict | None,
 ) -> QuestionPlan:

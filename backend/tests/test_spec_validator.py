@@ -177,7 +177,7 @@ class TestValidPlans:
         """Custom:: resources are not validated against specs."""
         custom = CfnResource(
             logical_id="MyCustom",
-            type="Custom::FortiGateBootstrap",
+            type="Custom::ApplianceBootstrap",
             properties={"Whatever": "anything goes"},
         )
         plan = _make_plan([_vpc_resource(), custom])

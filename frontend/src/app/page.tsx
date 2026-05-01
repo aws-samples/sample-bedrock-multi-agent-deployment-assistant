@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { Project } from "@/lib/types";
 import { listProjects, createProject, deleteProject } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 const STEP_LABELS: Record<string, string> = {
   requirements: "Requirements",
@@ -24,6 +25,7 @@ export default function DashboardPage() {
 function Dashboard() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { tenantId, mode } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -47,7 +49,7 @@ function Dashboard() {
 
     const id = setInterval(async () => {
       try {
-        const fresh = await listProjects();
+        const fresh = await listProjects(tenantId);
         setProjects(fresh);
 
         // Dismiss the notification once the triggering project's task completes
@@ -75,14 +77,14 @@ function Dashboard() {
   const fetchProjects = useCallback(async () => {
     try {
       setError(null);
-      const data = await listProjects();
+      const data = await listProjects(tenantId);
       setProjects(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Operation failed");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [tenantId]);
 
   useEffect(() => {
     fetchProjects();
@@ -96,7 +98,7 @@ function Dashboard() {
     setError(null);
 
     try {
-      const project = await createProject(trimmedName);
+      const project = await createProject(trimmedName, tenantId);
       router.push(`/project/${project.project_id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Operation failed");
@@ -109,7 +111,7 @@ function Dashboard() {
     if (!confirmed) return;
 
     try {
-      await deleteProject(projectId);
+      await deleteProject(projectId, tenantId);
       setProjects((prev) => prev.filter((p) => p.project_id !== projectId));
     } catch {
       setError("Failed to delete project");
@@ -122,12 +124,17 @@ function Dashboard() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">AI-LCM</h1>
+              <h1 className="text-2xl font-bold text-gray-900">AI Deploy</h1>
               <p className="text-sm text-gray-500">
-                FortiGate Deployment Assistant
+                Deployment Assistant
               </p>
             </div>
           </div>
+          {mode === "local" && (
+            <span className="px-2 py-1 text-xs font-medium rounded bg-amber-100 text-amber-700 border border-amber-200">
+              Local Mode
+            </span>
+          )}
         </div>
       </header>
 
@@ -136,7 +143,7 @@ function Dashboard() {
           <div>
             <h2 className="text-lg font-semibold text-gray-900">Projects</h2>
             <p className="text-sm text-gray-500">
-              Design and deploy FortiGate solutions on AWS with AI-powered
+              Design and deploy cloud solutions on AWS with AI-powered
               guidance.
             </p>
           </div>
@@ -162,7 +169,7 @@ function Dashboard() {
                   value={projectName}
                   onChange={(e) => setProjectName(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-                  placeholder="e.g., Production SD-WAN Deployment"
+                  placeholder="e.g., Production ML Inference Deployment"
                   className="w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder:text-gray-400"
                   autoFocus
                 />

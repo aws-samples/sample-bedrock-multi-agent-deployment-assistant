@@ -317,10 +317,10 @@ class TestDocsSystemPrompts:
 
         assert "Mermaid" in _DIAGRAM_SYSTEM_PROMPT
 
-    def test_text_system_prompt_mentions_fortigate(self):
+    def test_text_system_prompt_mentions_documentation(self):
         from src.agents.documentation import _TEXT_SYSTEM_PROMPT
 
-        assert "FortiGate" in _TEXT_SYSTEM_PROMPT
+        assert "Technical Writer" in _TEXT_SYSTEM_PROMPT
 
     def test_text_system_prompt_mentions_markdown(self):
         from src.agents.documentation import _TEXT_SYSTEM_PROMPT
@@ -558,71 +558,71 @@ class TestInterviewProgress:
         assert progress.complete is False
         assert progress.missing_fields == []
         assert progress.use_cases is None
-        assert progress.cloud_routing_protocol is None
+        assert progress.gpu_budget is None
 
     def test_to_interview_output_defaults(self):
-        from src.models.requirements import InterviewProgress, UseCases, RoutingProtocol, WorkloadResilience
+        from src.models.requirements import InterviewProgress, UseCases, WorkloadResilience
 
         progress = InterviewProgress(response_message="test", complete=False)
         doc = progress.to_interview_output()
-        assert doc.use_cases == [UseCases.NOTKNOWN]
-        assert doc.cloud_routing_protocol == RoutingProtocol.NOTKNOWN
-        assert doc.resilience == WorkloadResilience.NOTKNOWN
-        assert doc.bandwidth == 0.0
+        assert doc.use_cases == ["notknown"]
+        assert doc.gpu_budget == "notknown"
+        assert doc.availability_requirement == "notknown"
+        assert doc.data_sensitivity == "notknown"
         assert doc.compliance == []
         assert doc.solution_description == ""
 
     def test_to_interview_output_with_values(self):
         from src.models.requirements import (
-            InterviewProgress, UseCases, RoutingProtocol, WorkloadResilience, UserInformation
+            InterviewProgress, UseCases, WorkloadResilience, UserInformation
         )
 
         progress = InterviewProgress(
             response_message="Ready to proceed",
-            use_cases=[UseCases.EGRESS],
-            cloud_routing_protocol=RoutingProtocol.BGP,
-            resilience=WorkloadResilience.HA_SINGLE_REGION_DUAL_ZONE,
-            bandwidth=5000.0,
+            use_cases=["batch-inference"],
+            gpu_budget="high",
+            availability_requirement="production-multi-az",
+            data_sensitivity="confidential",
             user_info=UserInformation(name="John", experience_on_cloud="advanced"),
             compliance=["pci-dss"],
-            solution_description="Secure cloud egress with inspection",
+            solution_description="Batch inference pipeline for ML workloads",
             complete=True,
         )
         doc = progress.to_interview_output()
-        assert doc.use_cases == [UseCases.EGRESS]
-        assert doc.cloud_routing_protocol == RoutingProtocol.BGP
-        assert doc.resilience == WorkloadResilience.HA_SINGLE_REGION_DUAL_ZONE
-        assert doc.bandwidth == 5000.0
+        assert doc.use_cases == ["batch-inference"]
+        assert doc.gpu_budget == "high"
+        assert doc.availability_requirement == "production-multi-az"
+        assert doc.data_sensitivity == "confidential"
         assert doc.compliance == ["pci-dss"]
-        assert doc.solution_description == "Secure cloud egress with inspection"
+        assert doc.solution_description == "Batch inference pipeline for ML workloads"
 
-    def test_to_interview_output_with_sdwan_fields(self):
-        """SD-WAN use-case-specific fields are built from use_case_fields."""
-        from src.models.requirements import InterviewProgress, UseCases
+    def test_to_interview_output_with_use_case_fields(self):
+        """Use-case-specific fields are built from use_case_fields via catalog."""
+        from src.models.requirements import InterviewProgress
 
         progress = InterviewProgress(
             response_message="test",
-            use_cases=[UseCases.SD_WAN],
+            use_cases=["realtime-inference"],
             use_case_fields={
-                "role": "hub",
-                "number_of_branches": 10,
-                "overlay_strategy": "ipsec",
+                "model_size_category": "medium",
+                "target_latency_ms": 100,
+                "target_throughput_rps": 500,
             },
         )
         doc = progress.to_interview_output()
-        assert "sd-wan" in doc.use_case_details
-        assert doc.use_case_details["sd-wan"]["role"] == "hub"
-        assert doc.use_case_details["sd-wan"]["number_of_branches"] == 10
+        assert "realtime-inference" in doc.use_case_details
+        assert doc.use_case_details["realtime-inference"]["model_size_category"] == "medium"
+        assert doc.use_case_details["realtime-inference"]["target_latency_ms"] == 100
 
     def test_missing_fields_tracking(self):
         from src.models.requirements import InterviewProgress
 
         progress = InterviewProgress(
             response_message="Need more info",
-            missing_fields=["use_cases", "cloud_routing_protocol"],
+            missing_fields=["use_cases", "gpu_budget"],
         )
         assert "use_cases" in progress.missing_fields
-        assert "cloud_routing_protocol" in progress.missing_fields
+        assert "gpu_budget" in progress.missing_fields
 
 
 # ===================================================================

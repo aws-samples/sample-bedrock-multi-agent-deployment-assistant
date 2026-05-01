@@ -17,17 +17,18 @@ import { EventBridgePipeConstruct } from "./eventbridge-pipe";
 import { CloudFrontConstruct } from "./cloudfront";
 
 /**
- * AI-LCM infrastructure stack: ECS Fargate + ALB + VPC with shared
+ * AI-Deploy infrastructure stack: ECS Fargate + ALB + VPC with shared
  * resources (DynamoDB, S3, Cognito, KMS, Alarms) and async design + IaC
  * processing (SQS, Lambda, WebSocket API Gateway).
  */
-export class AiLcmStack extends cdk.Stack {
+export class AiDeployStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
     const environment = this.node.tryGetContext("environment") ?? "dev";
     const notificationEmail = this.node.tryGetContext("notificationEmail");
     const natGateways = this.node.tryGetContext("natGateways");
+    const certificateArn = this.node.tryGetContext("certificateArn");
 
     // Shared resources
     const kmsKey = new KmsConstruct(this, "Kms");
@@ -46,6 +47,12 @@ export class AiLcmStack extends cdk.Stack {
     });
 
     // ---------------------------------------------------------------------------
+    // VPC (created early so worker Lambdas can use it)
+    // ---------------------------------------------------------------------------
+
+    const vpc = new VpcConstruct(this, "Vpc", { natGateways, encryptionKey: kmsKey.key });
+
+    // ---------------------------------------------------------------------------
     // WebSocket API + Lambda handlers for real-time design task updates
     // ---------------------------------------------------------------------------
 
@@ -57,14 +64,26 @@ export class AiLcmStack extends cdk.Stack {
       artifactsBucket: s3.artifactsBucket,
       knowledgeBaseBucket: s3.knowledgeBaseBucket,
       encryptionKey: kmsKey.key,
+      vpc: vpc.vpc,
     });
 
     const websocket = new WebSocketConstruct(this, "WebSocket", {
       connectHandler: lambdaConstruct.wsConnect,
       disconnectHandler: lambdaConstruct.wsDisconnect,
       subscribeHandler: lambdaConstruct.wsSubscribe,
+      authorizer: lambdaConstruct.wsAuthorizer,
       encryptionKey: kmsKey.key,
     });
+
+    // Wire Cognito config into the WS authorizer
+    lambdaConstruct.wsAuthorizer.addEnvironment(
+      "COGNITO_USER_POOL_ID",
+      cognito.userPool.userPoolId,
+    );
+    lambdaConstruct.wsAuthorizer.addEnvironment(
+      "COGNITO_CLIENT_ID",
+      cognito.userPoolClient.userPoolClientId,
+    );
 
     // Wire the WebSocket callback URL into notification bridge + heartbeat
     lambdaConstruct.notificationBridge.addEnvironment(
@@ -89,7 +108,7 @@ export class AiLcmStack extends cdk.Stack {
 
     // EventBridge Scheduler: heartbeat every 5 minutes
     new scheduler.CfnSchedule(this, "HeartbeatSchedule", {
-      name: "ai-lcm-ws-heartbeat",
+      name: "ai-deploy-ws-heartbeat",
       scheduleExpression: "rate(5 minutes)",
       flexibleTimeWindow: { mode: "OFF" },
       target: {
@@ -114,7 +133,6 @@ export class AiLcmStack extends cdk.Stack {
     // ECS Fargate + ALB
     // ---------------------------------------------------------------------------
 
-    const vpc = new VpcConstruct(this, "Vpc", { natGateways, encryptionKey: kmsKey.key });
     const ecsConstruct = new EcsConstruct(this, "Ecs", {
       vpc: vpc.vpc,
       table: dynamo.table,
@@ -122,55 +140,56 @@ export class AiLcmStack extends cdk.Stack {
       knowledgeBaseBucket: s3.knowledgeBaseBucket,
       accessLogsBucket: s3.accessLogsBucket,
       encryptionKey: kmsKey.key,
+      certificateArn,
     });
 
     // Pass SQS queue URL and WebSocket URL to ECS backend environment
     ecsConstruct.service.taskDefinition.defaultContainer?.addEnvironment(
-      "AI_LCM_SQS_DESIGN_QUEUE_URL",
+      "AI_DEPLOY_SQS_DESIGN_QUEUE_URL",
       sqsConstruct.designQueue.queueUrl,
     );
     ecsConstruct.service.taskDefinition.defaultContainer?.addEnvironment(
-      "AI_LCM_WEBSOCKET_URL",
+      "AI_DEPLOY_WEBSOCKET_URL",
       websocket.stage.url,
     );
     ecsConstruct.service.taskDefinition.defaultContainer?.addEnvironment(
-      "AI_LCM_WEBSOCKET_CALLBACK_URL",
+      "AI_DEPLOY_WEBSOCKET_CALLBACK_URL",
       websocket.callbackUrl,
     );
 
     // Pass IaC queue URL to ECS backend environment
     ecsConstruct.service.taskDefinition.defaultContainer?.addEnvironment(
-      "AI_LCM_SQS_IAC_QUEUE_URL",
+      "AI_DEPLOY_SQS_IAC_QUEUE_URL",
       sqsConstruct.iacQueue.queueUrl,
     );
 
     // Pass docs queue URL to ECS backend environment
     ecsConstruct.service.taskDefinition.defaultContainer?.addEnvironment(
-      "AI_LCM_SQS_DOCS_QUEUE_URL",
+      "AI_DEPLOY_SQS_DOCS_QUEUE_URL",
       sqsConstruct.docsQueue.queueUrl,
     );
 
     // Cognito auth config
     ecsConstruct.service.taskDefinition.defaultContainer?.addEnvironment(
-      "AI_LCM_COGNITO_USER_POOL_ID",
+      "AI_DEPLOY_COGNITO_USER_POOL_ID",
       cognito.userPool.userPoolId,
     );
     ecsConstruct.service.taskDefinition.defaultContainer?.addEnvironment(
-      "AI_LCM_COGNITO_CLIENT_ID",
+      "AI_DEPLOY_COGNITO_CLIENT_ID",
       cognito.userPoolClient.userPoolClientId,
     );
 
     // Knowledge base bucket, region, and operational settings
     ecsConstruct.service.taskDefinition.defaultContainer?.addEnvironment(
-      "AI_LCM_S3_KNOWLEDGE_BASE_BUCKET",
+      "AI_DEPLOY_S3_KNOWLEDGE_BASE_BUCKET",
       s3.knowledgeBaseBucket.bucketName,
     );
     ecsConstruct.service.taskDefinition.defaultContainer?.addEnvironment(
-      "AI_LCM_AWS_REGION",
+      "AI_DEPLOY_AWS_REGION",
       cdk.Stack.of(this).region,
     );
     ecsConstruct.service.taskDefinition.defaultContainer?.addEnvironment(
-      "AI_LCM_TRUSTED_PROXY",
+      "AI_DEPLOY_TRUSTED_PROXY",
       "true",
     );
 
@@ -188,7 +207,7 @@ export class AiLcmStack extends cdk.Stack {
 
     // Set CORS to allow CloudFront domain
     ecsConstruct.service.taskDefinition.defaultContainer?.addEnvironment(
-      "AI_LCM_CORS_ORIGINS",
+      "AI_DEPLOY_CORS_ORIGINS",
       `["https://${frontend.distribution.distributionDomainName}"]`,
     );
 
@@ -206,7 +225,7 @@ export class AiLcmStack extends cdk.Stack {
 
     // Tag all resources
     const tags = {
-      Project: "ai-lcm",
+      Project: "ai-deploy",
       Environment: environment,
       CostCenter: this.node.tryGetContext("costCenter") ?? "engineering",
       Owner: this.node.tryGetContext("owner") ?? "platform-team",

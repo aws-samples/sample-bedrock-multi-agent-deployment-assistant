@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import DOMPurify from "dompurify";
 
 interface MermaidRendererProps {
   code: string;
@@ -24,9 +25,7 @@ async function ensureMermaidInit(): Promise<void> {
     mermaid.initialize({
       startOnLoad: false,
       theme: "neutral",
-      // Use 'loose' — 'sandbox' creates data: URI iframes blocked by CSP.
-      // Safe here because diagram content is deterministic (from CFT parser).
-      securityLevel: "loose",
+      securityLevel: "strict",
     });
 
     mermaidInitialized = true;
@@ -60,7 +59,11 @@ export function MermaidRenderer({ code }: MermaidRendererProps) {
         );
 
         if (renderIdRef.current === currentId) {
-          setSvgHtml(svg);
+          const cleanSvg = DOMPurify.sanitize(svg, {
+            USE_PROFILES: { svg: true, svgFilters: true },
+            ADD_TAGS: ["use"],
+          });
+          setSvgHtml(cleanSvg);
           setError(null);
         }
       } catch (e) {

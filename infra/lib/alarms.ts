@@ -37,8 +37,8 @@ export class AlarmsConstruct extends Construct {
     // SNS topic for alarm notifications
     // ---------------------------------------------------------------------------
     this.alertsTopic = new sns.Topic(this, "AlertsTopic", {
-      topicName: "ai-lcm-alerts",
-      displayName: "AI-LCM Alarm Notifications",
+      topicName: "ai-deploy-alerts",
+      displayName: "AI-Deploy Alarm Notifications",
       masterKey: props.encryptionKey,
     });
 
@@ -77,7 +77,7 @@ export class AlarmsConstruct extends Construct {
 
     const readThrottle = createAlarmWithActions(
       "DdbReadThrottle",
-      "ai-lcm-ddb-read-throttle",
+      "ai-deploy-ddb-read-throttle",
       props.table.metricThrottledRequestsForOperations({
         operations: [dynamodb.Operation.GET_ITEM, dynamodb.Operation.QUERY],
         period: cdk.Duration.minutes(5),
@@ -89,7 +89,7 @@ export class AlarmsConstruct extends Construct {
 
     const writeThrottle = createAlarmWithActions(
       "DdbWriteThrottle",
-      "ai-lcm-ddb-write-throttle",
+      "ai-deploy-ddb-write-throttle",
       props.table.metricThrottledRequestsForOperations({
         operations: [dynamodb.Operation.PUT_ITEM, dynamodb.Operation.UPDATE_ITEM],
         period: cdk.Duration.minutes(5),
@@ -104,7 +104,7 @@ export class AlarmsConstruct extends Construct {
     // ---------------------------------------------------------------------------
 
     const bedrockLatency = new cloudwatch.Metric({
-      namespace: "AI-LCM",
+      namespace: "AI-Deploy",
       metricName: "BedrockInvocationLatencyMs",
       period: cdk.Duration.minutes(5),
       statistic: "p99",
@@ -112,7 +112,7 @@ export class AlarmsConstruct extends Construct {
 
     const bedrockLatencyAlarm = createAlarmWithActions(
       "BedrockLatencyP99",
-      "ai-lcm-bedrock-latency-p99",
+      "ai-deploy-bedrock-latency-p99",
       bedrockLatency,
       30000,
       "Bedrock P99 latency exceeding 30s — model may be throttled",
@@ -120,7 +120,7 @@ export class AlarmsConstruct extends Construct {
     );
 
     const rateLimitHits = new cloudwatch.Metric({
-      namespace: "AI-LCM",
+      namespace: "AI-Deploy",
       metricName: "RateLimitExceeded",
       period: cdk.Duration.minutes(5),
       statistic: "Sum",
@@ -128,7 +128,7 @@ export class AlarmsConstruct extends Construct {
 
     const rateLimitAlarm = createAlarmWithActions(
       "RateLimitHits",
-      "ai-lcm-rate-limit-hits",
+      "ai-deploy-rate-limit-hits",
       rateLimitHits,
       50,
       "High rate of rate-limited requests — possible abuse or undersized limits",
@@ -139,7 +139,7 @@ export class AlarmsConstruct extends Construct {
     // ---------------------------------------------------------------------------
 
     this.dashboard = new cloudwatch.Dashboard(this, "Dashboard", {
-      dashboardName: "ai-lcm-operations",
+      dashboardName: "ai-deploy-operations",
     });
 
     // Row 1: DynamoDB
@@ -191,7 +191,7 @@ export class AlarmsConstruct extends Construct {
     if (props.designDlq) {
       dlqs.push({
         id: "DesignDlq",
-        name: "ai-lcm-design-dlq-depth",
+        name: "ai-deploy-design-dlq-depth",
         dlq: props.designDlq,
         desc: "Design DLQ has messages — failed design tasks require investigation",
       });
@@ -199,7 +199,7 @@ export class AlarmsConstruct extends Construct {
     if (props.iacDlq) {
       dlqs.push({
         id: "IaCDlq",
-        name: "ai-lcm-iac-dlq-depth",
+        name: "ai-deploy-iac-dlq-depth",
         dlq: props.iacDlq,
         desc: "IaC DLQ has messages — failed IaC generation tasks require investigation",
       });
@@ -207,7 +207,7 @@ export class AlarmsConstruct extends Construct {
     if (props.docsDlq) {
       dlqs.push({
         id: "DocsDlq",
-        name: "ai-lcm-docs-dlq-depth",
+        name: "ai-deploy-docs-dlq-depth",
         dlq: props.docsDlq,
         desc: "Docs DLQ has messages — failed documentation tasks require investigation",
       });
@@ -253,7 +253,7 @@ export class AlarmsConstruct extends Construct {
 
       const ecsCpuAlarm = createAlarmWithActions(
         "EcsCpuHigh",
-        "ai-lcm-ecs-cpu-high",
+        "ai-deploy-ecs-cpu-high",
         cpuMetric,
         80,
         "ECS CPU > 80% — consider scaling out",
@@ -262,7 +262,7 @@ export class AlarmsConstruct extends Construct {
 
       const ecsMemAlarm = createAlarmWithActions(
         "EcsMemHigh",
-        "ai-lcm-ecs-memory-high",
+        "ai-deploy-ecs-memory-high",
         memMetric,
         80,
         "ECS Memory > 80% — consider scaling out or increasing task size",
@@ -276,7 +276,7 @@ export class AlarmsConstruct extends Construct {
 
       const alb5xxAlarm = createAlarmWithActions(
         "Alb5xxHigh",
-        "ai-lcm-alb-5xx-high",
+        "ai-deploy-alb-5xx-high",
         alb5xx,
         10,
         "ALB returning 5xx errors — backend health issue",

@@ -163,10 +163,10 @@ class TestPromptBuilding:
     def test_build_next_question_block_with_next(self):
         from src.agents.interview_executor import _build_next_question_block
 
-        next_q = _make_question(field_path="bandwidth", question_template="Bandwidth?")
+        next_q = _make_question(field_path="gpu_budget", question_template="GPU budget?")
         result = _build_next_question_block(next_q)
-        assert "bandwidth" in result
-        assert "Bandwidth?" in result
+        assert "gpu_budget" in result
+        assert "GPU budget?" in result
 
     def test_build_next_question_block_last_question(self):
         from src.agents.interview_executor import _build_next_question_block

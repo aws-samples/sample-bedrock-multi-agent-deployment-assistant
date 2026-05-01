@@ -1,6 +1,6 @@
-"""CloudWatch custom metrics publisher for AI-LCM.
+"""CloudWatch custom metrics publisher for AI-Deploy.
 
-Publishes application-level metrics to the AI-LCM namespace:
+Publishes application-level metrics to the AI-Deploy namespace:
 - BedrockInvocationLatencyMs — agent call duration by agent name
 - RateLimitExceeded — rate limiter rejections by endpoint
 - RetryAttempt — tenacity retries by agent name
@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
 
-_NAMESPACE = "AI-LCM"
+_NAMESPACE = "AI-Deploy"
 
 
 class MetricsPublisher:

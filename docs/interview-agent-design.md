@@ -395,7 +395,7 @@ The `input_hint` enables the frontend to render selectable options for enum fiel
 
 ### 4.6 Configuration
 
-> **File**: `backend/src/config/settings.py` (env prefix: `AI_LCM_`)
+> **File**: `backend/src/config/settings.py` (env prefix: `AI_DEPLOY_`)
 
 | Setting | Default | Usage |
 |---|---|---|
@@ -405,8 +405,8 @@ The `input_hint` enables the frontend to render selectable options for enum fiel
 | `interview_plan_cache_ttl_minutes` | 30 | Plan cache eviction timeout |
 | `knowledge_base_id` | None | Bedrock KB ID (None = KB disabled) |
 | `storage_backend` | `"local"` | `"local"` or `"aws"` for plan persistence |
-| `s3_artifacts_bucket` | `"ai-lcm-artifacts"` | S3 bucket for plan persistence (AWS mode) |
-| `s3_knowledge_base_bucket` | `"ai-lcm-knowledge-base"` | KB document source bucket |
+| `s3_artifacts_bucket` | `"ai-deploy-artifacts"` | S3 bucket for plan persistence (AWS mode) |
+| `s3_knowledge_base_bucket` | `"ai-deploy-knowledge-base"` | KB document source bucket |
 | `guardrail_id` / `guardrail_version` | None / `"DRAFT"` | Bedrock guardrails on executor |
 
 ## 5. Hierarchical Knowledge Base Search
@@ -416,11 +416,11 @@ The `input_hint` enables the frontend to render selectable options for enum fiel
 The knowledge base uses a hierarchical S3 structure with metadata attributes:
 
 ```
-s3://ai-lcm-knowledge-base/
+s3://ai-deploy-knowledge-base/
 ├── {use_case}/
 │   └── {deployment_type}/
 │       ├── architecture.md          — VPC layout, traffic flows, patterns
-│       ├── components.md            — AWS services, FortiGate VM sizes, features
+│       ├── components.md            — AWS services, product VM sizes, features
 │       ├── configuration.md         — Routing, overlay, HA configuration details
 │       ├── sizing.md                — Instance sizing, bandwidth, cost
 │       └── best-practices.md        — Well-Architected, compliance
@@ -443,7 +443,7 @@ PLANNING PHASE (Turn 1):
 │ Level-1 Search: USE CASE                                  │
 │ Filter: use_case={uc} AND document_type IN                │
 │         (architecture, components)                        │
-│ Query:  "FortiGate {uc} deployment architecture on AWS"   │
+│ Query:  "product {uc} deployment architecture on AWS"   │
 │ Purpose: Auto-fill standard fields, understand pattern    │
 │ Results: 5-8 chunks (architecture overviews + components) │
 └───────────────────────────────────────────────────────────┘
@@ -463,7 +463,7 @@ CURVEBALL RE-PLAN:
 │ Level-3 Search: NARROWED BY DEVIATION                     │
 │ Filter: use_case={uc} AND deployment_type={dt}            │
 │         (deployment_type may have changed from deviation) │
-│ Query:  "{deviation_reason} FortiGate {uc} {dt}"          │
+│ Query:  "{deviation_reason} product {uc} {dt}"          │
 │ Purpose: Get architecture docs for the corrected pattern  │
 │ Results: 5-8 chunks (re-assess auto-fills + questions)    │
 └───────────────────────────────────────────────────────────┘
@@ -531,7 +531,7 @@ def _search_kb_for_planning(use_cases: list[UseCases], seed_data: dict) -> list[
     for uc in use_cases:
         if uc == UseCases.NOTKNOWN:
             continue
-        query = f"FortiGate {uc.value} deployment architecture AWS {desc}".strip()
+        query = f"product {uc.value} deployment architecture AWS {desc}".strip()
         results.extend(
             kb_search_filtered(
                 query, use_case=uc.value,
@@ -553,7 +553,7 @@ def _search_kb_for_replan(
     for uc in use_cases:
         if uc == UseCases.NOTKNOWN:
             continue
-        query = f"FortiGate {uc.value} {deviation_reason}"
+        query = f"product {uc.value} {deviation_reason}"
         results.extend(
             kb_search_filtered(
                 query, use_case=uc.value, deployment_type=deployment_type, max_results=5,
@@ -746,7 +746,7 @@ The `/api/interview/chat` endpoint is rate-limited to **10 requests/minute** per
 
 ### Metrics
 
-> **File**: `backend/src/config/metrics.py` — `MetricsPublisher` (CloudWatch, namespace: `AI-LCM`)
+> **File**: `backend/src/config/metrics.py` — `MetricsPublisher` (CloudWatch, namespace: `AI Deploy`)
 
 Metrics are recorded via `metrics.record_latency(agent_name, duration_ms, tenant_id)` and `metrics.record_retry(agent_name, attempt_number)`:
 

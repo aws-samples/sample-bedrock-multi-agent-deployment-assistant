@@ -32,18 +32,18 @@ class VPCBlueprint(BaseModel):
 
 
 class InterfaceBlueprint(BaseModel):
-    """A FortiGate network interface — maps port to subnet role."""
+    """An appliance network interface — maps port to subnet role."""
 
-    port_name: str = Field(description="FortiGate port (e.g., 'port1', 'port2')")
+    port_name: str = Field(description="Appliance interface name (naming from catalog config)")
     subnet_role: str = Field(description="Which subnet role this port connects to")
-    description: str = Field(description="Interface purpose (e.g., 'External/WAN', 'HA heartbeat')")
+    description: str = Field(description="Interface purpose (e.g., 'inference traffic', 'management')")
 
 
-class FortiGateBlueprint(BaseModel):
-    """A FortiGate instance's placement and interface layout."""
+class ApplianceBlueprint(BaseModel):
+    """An appliance instance's placement and interface layout."""
 
     role: str = Field(description="Instance role — KB-sourced (e.g., 'active', 'passive', 'target')")
-    vpc_role: str = Field(description="Which VPC (by role) this FortiGate belongs to")
+    vpc_role: str = Field(description="Which VPC (by role) this appliance belongs to")
     interfaces: list[InterfaceBlueprint] = Field(min_length=1)
 
 
@@ -92,7 +92,7 @@ class DesignOption(BaseModel):
     ha_mode: str = Field(
         description="HA configuration (e.g., 'active-passive', 'active-active', 'standalone')"
     )
-    fortigate_instance_type: str = Field(
+    appliance_instance_type: str = Field(
         description="EC2 instance type from KB sizing (e.g., 'c5.xlarge')"
     )
     aws_services: list[str] = Field(description="All AWS services used")
@@ -102,9 +102,9 @@ class DesignOption(BaseModel):
         min_length=1,
         description="VPCs needed, with subnet roles per VPC. Drives parameter resolver.",
     )
-    fortigate_topology: list[FortiGateBlueprint] = Field(
+    appliance_topology: list[ApplianceBlueprint] = Field(
         min_length=1,
-        description="FortiGate instances with interface-to-subnet mappings. Drives IP assignment.",
+        description="Appliance instances with interface-to-subnet mappings. Drives IP assignment.",
     )
 
     # --- Code template match ---
@@ -129,13 +129,13 @@ class DesignOption(BaseModel):
 
     @model_validator(mode="after")
     def _validate_interface_subnet_roles(self) -> "DesignOption":
-        """Every FortiGate interface subnet_role must exist in some VPC's subnet_roles."""
+        """Every appliance interface subnet_role must exist in some VPC's subnet_roles."""
         all_subnet_roles: set[str] = set()
         for vpc in self.vpc_topology:
             all_subnet_roles.update(vpc.subnet_roles)
 
-        for fgt in self.fortigate_topology:
-            for iface in fgt.interfaces:
+        for appliance in self.appliance_topology:
+            for iface in appliance.interfaces:
                 if iface.subnet_role not in all_subnet_roles:
                     raise ValueError(
                         f"Interface {iface.port_name} references subnet_role "
@@ -269,7 +269,7 @@ class ResolvedVPC(BaseModel):
 
 
 class ResolvedInterface(BaseModel):
-    """A FortiGate interface with assigned IP."""
+    """An appliance interface with assigned IP."""
 
     port_name: str
     subnet_name: str
@@ -278,8 +278,8 @@ class ResolvedInterface(BaseModel):
     source_dest_check: bool = False
 
 
-class ResolvedFortiGate(BaseModel):
-    """A fully resolved FortiGate instance."""
+class ResolvedAppliance(BaseModel):
+    """A fully resolved appliance instance."""
 
     name: str
     role: str
@@ -302,7 +302,7 @@ class ResolvedIaCParameters(BaseModel):
     availability_zones: list[str]
 
     vpcs: list[ResolvedVPC]
-    fortigate_instances: list[ResolvedFortiGate]
+    appliance_instances: list[ResolvedAppliance]
 
     code_template_s3_prefix: str | None = None
     code_template_files: dict[str, str] | None = None

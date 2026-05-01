@@ -47,15 +47,19 @@ def _build_execution_prompt(
     next_q: PlannedQuestion | None,
     user_message: str,
 ) -> str:
-    return _execute_prompt_template.format(
-        field_path=current_q.field_path,
-        question_template=current_q.question_template,
-        expected_type=current_q.expected_type,
-        valid_values_block=_build_valid_values_block(current_q),
-        kb_context=current_q.kb_context or "No specific KB context for this field.",
-        user_message=user_message,
-        next_question_block=_build_next_question_block(next_q),
-    )
+    from src.services.catalog_loader import get_catalog
+    catalog = get_catalog()
+    format_vars = {
+        **catalog.get_prompt_context(),
+        "field_path": current_q.field_path,
+        "question_template": current_q.question_template,
+        "expected_type": current_q.expected_type,
+        "valid_values_block": _build_valid_values_block(current_q),
+        "kb_context": current_q.kb_context or "No specific KB context for this field.",
+        "user_message": user_message,
+        "next_question_block": _build_next_question_block(next_q),
+    }
+    return _execute_prompt_template.format(**format_vars)
 
 
 # ---------------------------------------------------------------------------

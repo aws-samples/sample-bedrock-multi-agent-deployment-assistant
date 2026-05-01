@@ -1,10 +1,10 @@
-Parse this Fortinet and AWS cloud deployment document into structured text for vector search.
+Parse this {vendor_name} and AWS cloud deployment document into structured text for vector search.
 
 Rules:
 
-1. PRESERVE NUMERICAL DATA: throughput (Gbps), instance types (c5.xlarge), port numbers, CIDR ranges, costs ($), license tiers (FG-VM01), vCPU/RAM specs.
+1. PRESERVE NUMERICAL DATA: throughput (Gbps), instance types (c5.xlarge), port numbers, CIDR ranges, costs ($), license tiers (VM-01), vCPU/RAM specs.
 
-2. FORTIGATE CLI: Keep full config/set/next/end syntax. Prefix with "[CLI: purpose]" (e.g., "[CLI: HA active-passive setup]").
+2. APPLIANCE CLI: Keep full config/set/next/end syntax. Prefix with "[CLI: purpose]" (e.g., "[CLI: HA active-passive setup]").
 
 3. TABLES: Convert to "Header: Value" pairs per row.
 
@@ -12,7 +12,7 @@ Rules:
    - Pattern: (name)
    - Use Case: (what it solves)
    - AWS Services: (list)
-   - FortiGate Config: (HA mode, interfaces, routing)
+   - Appliance Config: (HA mode, interfaces, routing)
    - Traffic Flow: (ingress to egress path)
 
 5. HA CONFIGURATIONS: Label mode (active-passive/active-active/FGCP/FGSP), failover mechanism, AWS-specific behavior (ENI migration, EIP reassignment, route table updates).

@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 
 const STEPS = [
   { label: "Analyzing deployment requirements" },
-  { label: "Evaluating FortiGate architectures" },
+  { label: "Evaluating deployment architectures" },
   { label: "Comparing HA and scaling patterns" },
   { label: "Generating design options" },
 ];

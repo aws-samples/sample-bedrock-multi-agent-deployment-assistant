@@ -1,12 +1,12 @@
 import * as cdk from "aws-cdk-lib";
 import { Template, Match } from "aws-cdk-lib/assertions";
-import { AiLcmStack } from "../lib/ai-lcm-stack";
+import { AiDeployStack } from "../lib/ai-deploy-stack";
 
 let template: Template;
 
 beforeAll(() => {
   const app = new cdk.App();
-  const stack = new AiLcmStack(app, "TestStack", {
+  const stack = new AiDeployStack(app, "TestStack", {
     env: { account: "123456789012", region: "us-east-1" },
   });
   template = Template.fromStack(stack);
@@ -18,7 +18,7 @@ beforeAll(() => {
 
 test("DynamoDB table has correct key schema and settings", () => {
   template.hasResourceProperties("AWS::DynamoDB::Table", {
-    TableName: "ai-lcm-table-dev",
+    TableName: "ai-deploy-table-dev",
     KeySchema: [
       { AttributeName: "pk", KeyType: "HASH" },
       { AttributeName: "sk", KeyType: "RANGE" },
@@ -102,7 +102,7 @@ test("S3 buckets enforce SSL", () => {
 
 test("Cognito user pool has correct password policy", () => {
   template.hasResourceProperties("AWS::Cognito::UserPool", {
-    UserPoolName: "ai-lcm-user-pool",
+    UserPoolName: "ai-deploy-user-pool",
     Policies: {
       PasswordPolicy: {
         MinimumLength: 12,
@@ -129,14 +129,14 @@ test("Cognito user pool has custom tenant_id attribute", () => {
 
 test("Cognito user pool client uses SRP auth", () => {
   template.hasResourceProperties("AWS::Cognito::UserPoolClient", {
-    ClientName: "ai-lcm-web-client",
+    ClientName: "ai-deploy-web-client",
     ExplicitAuthFlows: Match.arrayWith(["ALLOW_USER_SRP_AUTH"]),
   });
 });
 
 test("Cognito user pool client has 7 day refresh token and revocation enabled", () => {
   template.hasResourceProperties("AWS::Cognito::UserPoolClient", {
-    ClientName: "ai-lcm-web-client",
+    ClientName: "ai-deploy-web-client",
     // CDK stores refresh token in minutes (7 days = 10080 minutes)
     RefreshTokenValidity: 10080,
     EnableTokenRevocation: true,
@@ -149,7 +149,7 @@ test("Cognito user pool client has 7 day refresh token and revocation enabled", 
 
 test("KMS key ARN is stored in SSM parameter, not CfnOutput", () => {
   template.hasResourceProperties("AWS::SSM::Parameter", {
-    Name: "/ai-lcm/kms-key-arn",
+    Name: "/ai-deploy/kms-key-arn",
   });
 
   const outputs = template.findOutputs("*");
@@ -159,7 +159,7 @@ test("KMS key ARN is stored in SSM parameter, not CfnOutput", () => {
 
 test("DynamoDB table ARN is stored in SSM parameter, not CfnOutput", () => {
   template.hasResourceProperties("AWS::SSM::Parameter", {
-    Name: "/ai-lcm/dynamodb-table-arn",
+    Name: "/ai-deploy/dynamodb-table-arn",
   });
 
   const outputs = template.findOutputs("*");
@@ -187,7 +187,7 @@ test("Stack exports required outputs", () => {
 
 test("SNS alerts topic is created", () => {
   template.hasResourceProperties("AWS::SNS::Topic", {
-    TopicName: "ai-lcm-alerts",
+    TopicName: "ai-deploy-alerts",
   });
 });
 
@@ -199,7 +199,7 @@ test("Stack has project tag", () => {
   // CDK applies tags at stack level; verify Project tag exists
   template.hasResourceProperties("AWS::DynamoDB::Table", {
     Tags: Match.arrayWith([
-      Match.objectLike({ Key: "Project", Value: "ai-lcm" }),
+      Match.objectLike({ Key: "Project", Value: "ai-deploy" }),
     ]),
   });
 });
@@ -213,7 +213,7 @@ describe("ECS deploy mode", () => {
 
   beforeAll(() => {
     const app = new cdk.App();
-    const stack = new AiLcmStack(app, "EcsTestStack", {
+    const stack = new AiDeployStack(app, "EcsTestStack", {
       env: { account: "123456789012", region: "us-east-1" },
     });
     ecsTemplate = Template.fromStack(stack);
@@ -274,7 +274,7 @@ describe("ECS deploy mode", () => {
 
   test("ECS log group has 6 month retention and RETAIN policy", () => {
     ecsTemplate.hasResourceProperties("AWS::Logs::LogGroup", {
-      LogGroupName: "/ai-lcm/ecs",
+      LogGroupName: "/ai-deploy/ecs",
       RetentionInDays: 180,
     });
   });

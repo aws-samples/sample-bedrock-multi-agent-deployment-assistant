@@ -15,7 +15,7 @@ Generate Cloudformation from DesignOptions and DeploymentParameters.
 - Uses **composable CFT snippets** as building blocks when no full template match exists (Path 2: LLM-generated wiring plan)
 - Applies **layered decomposed generation** for novel patterns (Path 3): an Architecture Planner LLM decomposes the deployment into layers (Foundation, Security, Compute, HA, Integration), each layer generates a small `ResourcePlan` (5-15 resources) in parallel, and a deterministic merger wires cross-layer references. Output is **CloudFormation JSON** via `json.dumps()` — mathematically incapable of producing syntax errors.
 - **LLM + thread-safe cache** strategy for layer plans: the Architecture Planner generates a `LayerPlan` on first request for a deployment pattern, then caches it with a tenant-scoped key (`{tenant_id}:{pattern_key}`) under `threading.Lock` (double-checked locking) for safe concurrent reuse — zero maintenance overhead
-- Runs a **local multi-tier validation pipeline**: structural → cfn-lint → checkov → cfn-guard (custom Fortinet rules) — all local, no external MCP dependencies. Path 3 also runs **pre-assembly spec validation** against CloudFormation resource schemas.
+- Runs a **local multi-tier validation pipeline**: structural → cfn-lint → checkov → cfn-guard (custom vendor rules) — all local, no external MCP dependencies. Path 3 also runs **pre-assembly spec validation** against CloudFormation resource schemas.
 - Iterates through a **per-layer validation-fix loop** (up to 3 attempts) — errors are routed back to originating layers by logical ID, only broken layers are re-generated. Best-version tracking with revert-on-worse logic.
 - Produces a **single CloudFormation template** — `template.json` for Path 3 (JSON), `template.yaml` for Paths 1 & 2 (YAML). Simpler, more reliable than nested stacks.
 - **Works identically in both local and AWS modes** — the layered generation pipeline runs inside `generate_iac()`, which is called by both `local_worker.py` (local dev) and the Lambda worker (AWS). Task dispatch differs (SQS+Lambda vs local worker), but the generation logic is identical.
@@ -123,7 +123,7 @@ The IaC agent follows a strict precedence for template resolution:
    - Region, AZs (by index: `AZ1` → first AZ, `AZ2` → second AZ)
    - VPC CIDRs (by role/name similarity)
    - Subnet CIDRs (by name fuzzy matching)
-   - FortiGate interface IPs
+   - product interface IPs
    - Instance type, project name, environment, tags
    - `additional_resolved` keys (pattern-specific extras like TGW ASN)
 3. `inject_parameter_defaults()` (`cfn_assembler.py`) parses the template with `cfn_load()`, updates matching Parameter `Default` values, and re-serialises with `cfn_dump()`.
@@ -139,12 +139,12 @@ The IaC agent follows a strict precedence for template resolution:
 
 **Snippet organization in KB (S3)**:
 ```
-s3://ai-lcm-knowledge-base/snippets/cloudformation/
+s3://ai-deploy-knowledge-base/snippets/cloudformation/
   ├── vpc/
   │   ├── vpc-2az.yaml           # VPC with 2 AZs
   │   ├── vpc-3az.yaml           # VPC with 3 AZs
   │   └── vpc-params.yaml        # Reusable parameter block
-  ├── fortigate/
+  ├── product/
   │   ├── fgt-ha-active-passive.yaml   # HA A-P pair
   │   ├── fgt-standalone.yaml          # Single FGT
   │   ├── fgt-autoscale.yaml           # Auto Scaling group
@@ -156,7 +156,7 @@ s3://ai-lcm-knowledge-base/snippets/cloudformation/
   │   ├── gwlb.yaml                    # Gateway Load Balancer
   │   └── route-tables.yaml            # Route table patterns
   ├── security/
-  │   ├── sg-fortigate.yaml            # FortiGate security groups
+  │   ├── sg-product.yaml            # product security groups
   │   ├── sg-management.yaml           # Management access SG
   │   └── iam-fgt-role.yaml            # IAM role + instance profile
   └── outputs/
@@ -168,7 +168,7 @@ s3://ai-lcm-knowledge-base/snippets/cloudformation/
 
 1. Analyse the `ResolvedIaCParameters` to determine required resource types:
    - VPC count + AZ count → select VPC snippet
-   - FortiGate count + roles → select FGT snippet
+   - product count + roles → select FGT snippet
    - Deployment pattern → select networking snippet (TGW, GWLB, etc.)
    - Security requirements → select security snippets
 2. Fetch matching snippets from S3 (via `snippet_discovery` tool), parse each with `cfn_load()`.
@@ -299,7 +299,7 @@ Generated Template (YAML/JSON string)
          ▼
 ┌─────────────────────────┐
 │ Layer 3: cfn-guard      │  Subprocess invocation of cfn-guard CLI
-│ (Custom FortiGate rules)│  FortiGate-specific: SourceDestCheck, instance types,
+│ (Custom product rules)│  product-specific: SourceDestCheck, instance types,
 │ Speed: <1s              │  HA patterns, ENI counts, required tags
 └────────┬────────────────┘
          │ PASS
@@ -338,8 +338,8 @@ Local execution via checkov's Python Runner.
 
 - **Targeted frameworks**: `["cloudformation"]` only (not Terraform, Kubernetes, etc.)
 - **NON-BLOCKING layer**: checkov findings are reported but do NOT prevent output delivery
-- **Skip list**: Known acceptable patterns for FortiGate (e.g., SourceDestCheck=false on data-plane ENIs is intentional, not a misconfiguration)
-- **Configurable skip checks**: `settings.checkov_skip_checks` (env: `AI_LCM_CHECKOV_SKIP_CHECKS`)
+- **Skip list**: Known acceptable patterns for product (e.g., SourceDestCheck=false on data-plane ENIs is intentional, not a misconfiguration)
+- **Configurable skip checks**: `settings.checkov_skip_checks` (env: `AI_DEPLOY_CHECKOV_SKIP_CHECKS`)
 - **Temporary file**: checkov requires file paths, so write template to a temp file
 
 ### 4.4.1 Error Classification: Blocking vs Non-Blocking Layers
@@ -350,7 +350,7 @@ The validation pipeline classifies errors by layer, not just severity:
 |-------|-----------|-----------|
 | structural | YES | Broken YAML/JSON, missing required keys — template won't deploy |
 | cfn-lint | YES | Invalid property names, types, refs — CloudFormation will reject |
-| checkov | NO | Security findings reported but don't block (FortiGate patterns are intentional) |
+| checkov | NO | Security findings reported but don't block (product patterns are intentional) |
 | cfn-guard | NO | Best-practice findings reported but don't block output |
 
 `ValidationReport` provides methods for this classification:
@@ -360,19 +360,19 @@ The validation pipeline classifies errors by layer, not just severity:
 - `non_blocking_findings()` — checkov/cfn-guard findings (all severities)
 - `error_count()` — total errors across all layers
 
-### 4.5a Layer 3: cfn-guard Custom FortiGate Rules — NON-BLOCKING
+### 4.5a Layer 3: cfn-guard Custom product Rules — NON-BLOCKING
 
-Custom guard rules stored in `backend/src/validation/fortigate_rules.guard`:
+Custom guard rules stored in `backend/src/validation/product_rules.guard`:
 
-1. **FortiGateInstanceType**: Approved compute-optimized instance types only
-2. **FortiGateMultipleENIs**: At least 2 ENIs per FortiGate (mgmt + data)
-3. **FortiGateVolumeEncryption**: EBS volumes must be encrypted
+1. **productInstanceType**: Approved compute-optimized instance types only
+2. **productMultipleENIs**: At least 2 ENIs per product (mgmt + data)
+3. **productVolumeEncryption**: EBS volumes must be encrypted
 4. **NoOpenSSH**: No 0.0.0.0/0 on port 22
 5. **RestrictedManagementAccess**: No 0.0.0.0/0 on port 443
 6. **HASyncSubnetNoPublicRoute**: HA sync subnets must be private
 7. **RequiredTags**: All taggable resources must have Project, Environment, ManagedBy, UseCase tags
 8. **VPCDNSEnabled**: VPC must have DNS support + hostnames enabled
-9. **SourceDestCheckDisabled**: FortiGate data-plane ENIs must have SourceDestCheck=false
+9. **SourceDestCheckDisabled**: product data-plane ENIs must have SourceDestCheck=false
 10. **IAMRoleLeastPrivilege**: IAM policies must not use `*` for Action (except ec2:Describe*)
 
 ### 4.6 Validation-Fix Loop (with Best-Version Tracking)
@@ -437,8 +437,8 @@ if report.blocking_error_count() > best_blocking:
 - Error priority header injected into fix prompt: structural > cfn-lint > cfn-guard > checkov
 - For **cfn-lint errors**: Fix property names/types per CFN spec (e.g., `GroupSet` not `SecurityGroupIds` for ENIs)
 - For **checkov failures**: Apply specific remediation (e.g., add `Encrypted: true`)
-- For **cfn-guard failures**: Apply FortiGate-specific corrections per rule message
-- For **FortiGate-intentional patterns**: SourceDestCheck=false on data-plane ENIs is NOT an error
+- For **cfn-guard failures**: Apply product-specific corrections per rule message
+- For **product-intentional patterns**: SourceDestCheck=false on data-plane ENIs is NOT an error
 - **NOT allowed to**: Add new resources, remove resources, change the deployment architecture, rename import parameters or export resources
 
 ---
@@ -495,7 +495,7 @@ Token budgets are per-path (the LLM generates structured JSON):
 | Fix (per-layer) | `iac_layer_fix_max_tokens` | 16384 | Fixed per-layer ResourcePlan |
 | Fix (monolithic fallback) | `iac_fix_max_tokens` | 32768 | Fixed ResourcePlan JSON |
 
-Env vars: `AI_LCM_IAC_LAYER_PLAN_MAX_TOKENS`, `AI_LCM_IAC_LAYER_GENERATE_MAX_TOKENS`, etc.
+Env vars: `AI_DEPLOY_IAC_LAYER_PLAN_MAX_TOKENS`, `AI_DEPLOY_IAC_LAYER_GENERATE_MAX_TOKENS`, etc.
 
 ### Fix Agent (Per-Layer for Path 3)
 
@@ -551,7 +551,7 @@ class ValidationFinding(BaseModel):
     """A single validation finding from any layer."""
     layer: str           # "structural" | "cfn-lint" | "checkov" | "cfn-guard"
     severity: str        # "error" | "warning" | "info"
-    rule_id: str         # e.g., "E3012", "CKV_AWS_23", "FortiGateInstanceType"
+    rule_id: str         # e.g., "E3012", "CKV_AWS_23", "productInstanceType"
     message: str
     resource: str | None = None  # Logical resource ID
     line: int | None = None
@@ -805,7 +805,7 @@ def discover_snippets(resource_types: list[str]) -> dict[str, list[SnippetInfo]]
     """Discover composable CFT snippets for specific resource types.
 
     Scans s3://{bucket}/snippets/cloudformation/{resource_type}/*.yaml
-    Returns: { "vpc": [SnippetInfo(...)], "fortigate": [SnippetInfo(...)] }
+    Returns: { "vpc": [SnippetInfo(...)], "product": [SnippetInfo(...)] }
     """
 ```
 
@@ -838,8 +838,8 @@ def resolve_template_path(params: ResolvedIaCParameters) -> TemplatePath:
 For Path 3 (KB-grounded generation), the agent queries:
 
 1. **Architecture docs**: Overall topology, traffic flows, VPC layout
-2. **Components docs**: Specific AWS services, FortiGate features
-3. **Configuration docs**: FortiGate CLI bootstrap, HA settings, routing
+2. **Components docs**: Specific AWS services, product features
+3. **Configuration docs**: product CLI bootstrap, HA settings, routing
 4. **Reference CFT**: `cft.json` as structural skeleton
 
 All KB content is injected into the system prompt, NOT as tool calls. This ensures the LLM has all context in a single inference call rather than multiple tool-use rounds.
@@ -867,7 +867,7 @@ The following components are already deployed and working for design task notifi
 
 ### 8.2 Connection Tracking (DynamoDB — Existing Schema, No Changes)
 
-Uses the existing `ai-lcm-table` single-table design:
+Uses the existing `ai-deploy-table` single-table design:
 
 ```
 # Connection record (created on $connect)
@@ -911,12 +911,12 @@ The existing EventBridge Pipe is the notification trigger. The **only change** n
 is broadening its source filter to also match `IAC_TASK#` SK prefixes:
 
 ```
-DynamoDB Stream (table: ai-lcm-table)
+DynamoDB Stream (table: ai-deploy-table)
   │
   │ Stream view type: NEW_AND_OLD_IMAGES
   │
   ▼
-EventBridge Pipe (ai-lcm-design-notification-pipe)
+EventBridge Pipe (ai-deploy-design-notification-pipe)
   │
   │ Source filter (UPDATED to include IaC tasks):
   │   eventName: MODIFY
@@ -925,7 +925,7 @@ EventBridge Pipe (ai-lcm-design-notification-pipe)
   │   dynamodb.OldImage.status.S != dynamodb.NewImage.status.S
   │
   ▼
-Lambda: ws-notification-bridge (ai-lcm-ws-notification-bridge)
+Lambda: ws-notification-bridge (ai-deploy-ws-notification-bridge)
   │
   │ 1. Extract task_id, tenant_id, project_id, status from stream NewImage
   │ 2. Skip if NewImage.status == OldImage.status (no actual change)
@@ -1010,7 +1010,7 @@ The fix agent:
 - Uses `settings.iac_fix_max_tokens` (default: 32768) for output budget
 - Uses `structured_output_model=ResourcePlan` to ensure fixes produce valid structured output
 - Fix prompt includes error priority header: structural > cfn-lint > cfn-guard > checkov
-- FortiGate-intentional patterns (SourceDestCheck=false on data-plane ENIs) are not "fixed"
+- product-intentional patterns (SourceDestCheck=false on data-plane ENIs) are not "fixed"
 
 ### 9.5 Idempotency
 
@@ -1020,7 +1020,7 @@ SQS FIFO with deduplication ensures the same IaC task is not processed twice. Th
 
 ## 9.6 Observability Metrics (CloudWatch)
 
-The IaC agent emits custom CloudWatch metrics to the `AI-LCM` namespace via the
+The IaC agent emits custom CloudWatch metrics to the `AI Deploy` namespace via the
 existing `MetricsPublisher` (non-blocking background threads):
 
 | Metric | Unit | Dimensions | When |

@@ -47,7 +47,7 @@ export class CloudFrontConstruct extends Construct {
 
     // Security headers policy
     const responseHeadersPolicy = new cloudfront.ResponseHeadersPolicy(this, "SecurityHeaders", {
-      responseHeadersPolicyName: "ai-lcm-frontend-security-headers",
+      responseHeadersPolicyName: "ai-deploy-frontend-security-headers",
       securityHeadersBehavior: {
         contentTypeOptions: { override: true },
         frameOptions: {
@@ -78,6 +78,9 @@ export class CloudFrontConstruct extends Construct {
         responseHeadersPolicy,
       },
       defaultRootObject: "index.html",
+      enableLogging: !!props.accessLogsBucket,
+      logBucket: props.accessLogsBucket as s3.Bucket | undefined,
+      logFilePrefix: props.accessLogsBucket ? "cloudfront/" : undefined,
       // SPA fallback: serve index.html for 403/404 so client-side routing works
       errorResponses: [
         {

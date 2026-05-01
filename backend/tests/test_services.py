@@ -145,15 +145,16 @@ class TestDesignService:
         with patch("src.services.design.settings") as mock_settings:
             mock_settings.sqs_design_queue_url = None
 
-            from src.models.requirements import InterviewOutput, UseCases, RoutingProtocol
+            from src.models.requirements import InterviewOutput, UseCases
             from src.services.design import submit_design_task
 
             reqs = InterviewOutput(
-                use_cases=[UseCases.SD_WAN],
-                cloud_routing_protocol=RoutingProtocol.BGP,
-                bandwidth=1000.0,
+                use_cases=["realtime-inference"],
+                gpu_budget="moderate",
+                availability_requirement="production-single-az",
+                data_sensitivity="internal",
                 compliance=["none"],
-                solution_description="Deploy SD-WAN",
+                solution_description="Deploy real-time inference",
             )
             result = submit_design_task(reqs, project_id="p1", tenant_id="t1")
             assert result["status"] == "queued"
@@ -173,15 +174,16 @@ class TestDesignService:
         with patch("src.services.design.settings") as mock_settings:
             mock_settings.sqs_design_queue_url = None
 
-            from src.models.requirements import InterviewOutput, UseCases, RoutingProtocol
+            from src.models.requirements import InterviewOutput, UseCases
             from src.services.design import submit_design_task
 
             reqs = InterviewOutput(
-                use_cases=[UseCases.SD_WAN],
-                cloud_routing_protocol=RoutingProtocol.BGP,
-                bandwidth=1000.0,
+                use_cases=["realtime-inference"],
+                gpu_budget="moderate",
+                availability_requirement="production-single-az",
+                data_sensitivity="internal",
                 compliance=["none"],
-                solution_description="Deploy SD-WAN",
+                solution_description="Deploy real-time inference",
             )
             result = submit_design_task(
                 reqs,

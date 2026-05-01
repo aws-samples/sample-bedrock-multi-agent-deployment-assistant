@@ -81,18 +81,18 @@ class TestEvaluateCondition:
         assert _evaluate_condition(cond, {"protocol": "static"}) is True
 
     def test_exists(self):
-        cond = SkipCondition(field_path="bandwidth", operator="exists")
-        assert _evaluate_condition(cond, {"bandwidth": 1000}) is True
+        cond = SkipCondition(field_path="gpu_budget", operator="exists")
+        assert _evaluate_condition(cond, {"gpu_budget": "moderate"}) is True
         assert _evaluate_condition(cond, {}) is False
 
     def test_not_exists(self):
-        cond = SkipCondition(field_path="bandwidth", operator="not_exists")
+        cond = SkipCondition(field_path="gpu_budget", operator="not_exists")
         assert _evaluate_condition(cond, {}) is True
-        assert _evaluate_condition(cond, {"bandwidth": 1000}) is False
+        assert _evaluate_condition(cond, {"gpu_budget": "moderate"}) is False
 
     def test_nested_field(self):
-        cond = SkipCondition(field_path="sd-wan.role", operator="eq", value="hub")
-        assert _evaluate_condition(cond, {"sd-wan": {"role": "hub"}}) is True
+        cond = SkipCondition(field_path="realtime-inference.model_size_category", operator="eq", value="large")
+        assert _evaluate_condition(cond, {"realtime-inference": {"model_size_category": "large"}}) is True
 
 
 # ===================================================================
@@ -163,10 +163,10 @@ class TestQuestionPlanMutations:
 
     def test_mark_answered_nested_field(self):
         plan = QuestionPlan(entries=[
-            PlannedQuestion(field_path="sd-wan.role", question_template="Role?"),
+            PlannedQuestion(field_path="realtime-inference.model_size_category", question_template="Model size?"),
         ])
-        plan.mark_answered("sd-wan.role", "hub")
-        assert plan.populated_fields == {"sd-wan": {"role": "hub"}}
+        plan.mark_answered("realtime-inference.model_size_category", "large")
+        assert plan.populated_fields == {"realtime-inference": {"model_size_category": "large"}}
 
     def test_mark_answered_only_affects_pending(self):
         plan = _make_plan("answered", "pending")
@@ -290,16 +290,16 @@ class TestPlanSerialization:
                     answered_value="hub",
                 ),
             ],
-            auto_filled={"bandwidth": 1000},
-            auto_fill_rationale={"bandwidth": "From seed data"},
+            auto_filled={"gpu_budget": "moderate"},
+            auto_fill_rationale={"gpu_budget": "From seed data"},
             kb_summary="Test summary",
-            populated_fields={"role": "hub", "bandwidth": 1000},
+            populated_fields={"role": "hub", "gpu_budget": "moderate"},
         )
         json_str = plan.model_dump_json()
         restored = QuestionPlan.model_validate_json(json_str)
         assert restored.entries[0].field_path == "role"
         assert restored.entries[0].answered_value == "hub"
-        assert restored.auto_filled["bandwidth"] == 1000
+        assert restored.auto_filled["gpu_budget"] == "moderate"
         assert restored.kb_summary == "Test summary"
 
 
@@ -311,12 +311,12 @@ class TestPlanSerialization:
 class TestLLMOutputModels:
     def test_question_plan_output(self):
         out = QuestionPlanOutput(
-            auto_filled_fields={"bandwidth": 5000},
-            auto_fill_rationale={"bandwidth": "From wizard"},
+            auto_filled_fields={"gpu_budget": "high"},
+            auto_fill_rationale={"gpu_budget": "From wizard"},
             questions=[
-                PlannedQuestionLLM(field_path="role", question_template="Role?"),
+                PlannedQuestionLLM(field_path="model_size_category", question_template="Model size?"),
             ],
-            kb_summary="Found hub-spoke docs",
+            kb_summary="Found inference deployment docs",
             initial_message="Welcome!",
         )
         assert len(out.questions) == 1

@@ -3,6 +3,7 @@
 import { use, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/auth";
 import { useWizardState } from "@/hooks/useWizardState";
 import { PhaseIndicator } from "@/components/dashboard/PhaseIndicator";
 import { RequirementsForm } from "@/components/wizard/RequirementsForm";
@@ -21,6 +22,7 @@ export default function ProjectWorkspace({
 }) {
   const { id } = use(params);
   const router = useRouter();
+  const { tenantId: authTenantId } = useAuth();
 
   const onDesignSubmitted = useCallback(() => {
     router.push("/?designing=" + encodeURIComponent(id));
@@ -64,7 +66,7 @@ export default function ProjectWorkspace({
     reset,
     handleIaCComplete,
     handleIaCFailed,
-  } = useWizardState(id, "default", { onDesignSubmitted, onIaCSubmitted });
+  } = useWizardState(id, authTenantId, { onDesignSubmitted, onIaCSubmitted });
 
   if (hydrating) {
     return (

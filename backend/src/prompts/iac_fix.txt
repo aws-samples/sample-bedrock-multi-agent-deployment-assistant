@@ -13,7 +13,7 @@ WITHOUT changing the deployment architecture.
    - Missing required property -> add it with a sensible default or intrinsic reference
    - Wrong type -> convert to the correct type (e.g., string to list)
 6. For checkov findings: apply the specific remediation (e.g., add Encrypted: true).
-7. For cfn-guard findings: apply FortiGate-specific corrections per the rule message.
+7. For cfn-guard findings: apply product-specific corrections per the rule message.
 8. Preserve all existing parameters, outputs, and resource configurations that are NOT
    related to the reported errors.
 9. SourceDestCheck: false on data-plane ENIs is INTENTIONAL — do NOT change it.
@@ -22,8 +22,8 @@ WITHOUT changing the deployment architecture.
 ## Error Priority (fix in this order)
 1. structural errors (missing keys, empty sections) — MUST fix
 2. cfn-lint errors (property names, types, required fields) — MUST fix
-3. cfn-guard errors (FortiGate best practices) — fix if possible
-4. checkov warnings (security findings) — fix unless FortiGate-intentional
+3. cfn-guard errors (deployment best practices) — fix if possible
+4. checkov warnings (security findings) — fix unless intentionally required by the product
 
 ## Intrinsic Functions (use these in property values)
   {"ref": "LogicalId"}                          -> !Ref LogicalId

@@ -138,12 +138,12 @@ sqs_docs_queue_url: Optional[str] = None   # If None, use local worker
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AI_LCM_DOCS_DIAGRAM_MAX_TOKENS` | 16384 | Token limit for diagram generation |
-| `AI_LCM_DOCS_DIAGRAM_FIX_MAX_TOKENS` | 16384 | Token limit for diagram fix attempts |
-| `AI_LCM_DOCS_USER_GUIDE_MAX_TOKENS` | 32768 | Token limit for user guide (~3000 words with tables) |
-| `AI_LCM_DOCS_THREAT_MODEL_MAX_TOKENS` | 32768 | Token limit for STRIDE threat model (~3000 words with tables) |
-| `AI_LCM_DOCS_DIAGRAM_MAX_FIX_ATTEMPTS` | 3 | Max diagram validation-fix iterations |
-| `AI_LCM_SQS_DOCS_QUEUE_URL` | None | Dedicated docs SQS FIFO queue URL |
+| `AI_DEPLOY_DOCS_DIAGRAM_MAX_TOKENS` | 16384 | Token limit for diagram generation |
+| `AI_DEPLOY_DOCS_DIAGRAM_FIX_MAX_TOKENS` | 16384 | Token limit for diagram fix attempts |
+| `AI_DEPLOY_DOCS_USER_GUIDE_MAX_TOKENS` | 32768 | Token limit for user guide (~3000 words with tables) |
+| `AI_DEPLOY_DOCS_THREAT_MODEL_MAX_TOKENS` | 32768 | Token limit for STRIDE threat model (~3000 words with tables) |
+| `AI_DEPLOY_DOCS_DIAGRAM_MAX_FIX_ATTEMPTS` | 3 | Max diagram validation-fix iterations |
+| `AI_DEPLOY_SQS_DOCS_QUEUE_URL` | None | Dedicated docs SQS FIFO queue URL |
 
 ---
 
@@ -152,7 +152,7 @@ sqs_docs_queue_url: Optional[str] = None   # If None, use local worker
 Two inline system prompts (short role definitions, not in `.txt` files):
 
 - **`_DIAGRAM_SYSTEM_PROMPT`** — "You are an expert AWS architecture diagram generator..."
-- **`_TEXT_SYSTEM_PROMPT`** — "You are an FCCS Technical Writer producing documentation for a FortiGate-VM deployment on AWS..."
+- **`_TEXT_SYSTEM_PROMPT`** — "You are an Senior Technical Writer producing documentation for a the product deployment on AWS..."
 
 User prompts with full context are loaded from the `.txt` template files.
 
@@ -193,7 +193,7 @@ Each section calls `on_section_complete(section_name, content)` when it finishes
 The diagram prompt enforces a strict **left-to-right** network flow:
 
 ```
-Internet -> [Public Subnets] -> FortiGate -> [Private Subnets] -> Data Layer -> IAM/Monitoring
+Internet -> [Public Subnets] -> product -> [Private Subnets] -> Data Layer -> IAM/Monitoring
 ```
 
 Rules:
@@ -255,11 +255,11 @@ Individual section failures produce placeholder text but do not fail the entire 
 
 | Resource | Config |
 |----------|--------|
-| **SQS Queue** | `ai-lcm-docs-tasks.fifo` — dedicated FIFO, 10-min visibility, KMS encrypted |
-| **SQS DLQ** | `ai-lcm-docs-dlq.fifo` — 14-day retention, maxReceiveCount=3 |
-| **Lambda** | `ai-lcm-docs-worker` — Docker image, 2GB RAM, 10-min timeout |
+| **SQS Queue** | `ai-deploy-docs-tasks.fifo` — dedicated FIFO, 10-min visibility, KMS encrypted |
+| **SQS DLQ** | `ai-deploy-docs-dlq.fifo` — 14-day retention, maxReceiveCount=3 |
+| **Lambda** | `ai-deploy-docs-worker` — Docker image, 2GB RAM, 10-min timeout |
 | **Lambda CMD** | `src.workers.docs_worker.handler` (overrides Dockerfile default) |
-| **ECS env var** | `AI_LCM_SQS_DOCS_QUEUE_URL` -> maps to `sqs_docs_queue_url` setting |
+| **ECS env var** | `AI_DEPLOY_SQS_DOCS_QUEUE_URL` -> maps to `sqs_docs_queue_url` setting |
 | **Node.js** | Installed in both `Dockerfile` and `Dockerfile.lambda` for Mermaid validation |
 
 ### Local Dev

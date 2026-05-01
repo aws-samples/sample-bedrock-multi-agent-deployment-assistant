@@ -64,8 +64,8 @@ Phase 4: PARAMETER RESOLUTION (Deterministic)
 ┌────────────────────────────────────────────────────────────────────┐
 │  Deterministic code computes all IaC parameters:                   │
 │  - Subnet CIDRs from VPC CIDR + AZ count                           │
-│  - FortiGate interface IPs from subnet CIDRs                       │
-│  - AMI ID from region + FortiGate version                          │
+│  - product interface IPs from subnet CIDRs                       │
+│  - AMI ID from region + product version                          │
 │  - Security group rules from use case + deployment pattern         │
 │  - Route table entries, IAM roles, bootstrap config                │
 │  Output: ResolvedIaCParameters → passed to IaC agent               │
@@ -92,7 +92,7 @@ Phase 4: PARAMETER RESOLUTION (Deterministic)
 ### 3.0 Design Principle: Schema Enforces Grammar, KB Provides Vocabulary
 
 **No hardcoded enums for business values.** The models below enforce *shape* (a design has
-VPCs, VPCs have subnets, FortiGates have interfaces) but never *enumerate* which deployment
+VPCs, VPCs have subnets, products have interfaces) but never *enumerate* which deployment
 patterns, subnet roles, or interface mappings are valid. Those come from the KB.
 
 Adding a new deployment pattern = uploading documents to S3 + re-syncing KB. Zero code changes.
@@ -101,7 +101,7 @@ The only code-level enums are for truly fixed infrastructure concepts (task stat
 
 ### 3.1 Topology Blueprints — Structural Contracts
 
-These models define the **grammar** of a FortiGate deployment. The LLM fills them with
+These models define the **grammar** of a product deployment. The LLM fills them with
 values sourced from KB architecture docs. The parameter resolver reads them to know
 exactly what to compute.
 
@@ -118,16 +118,16 @@ class VPCBlueprint(BaseModel):
 
 
 class InterfaceBlueprint(BaseModel):
-    """A FortiGate network interface — maps port to subnet role."""
-    port_name: str = Field(description="FortiGate port (e.g., 'port1', 'port2')")
+    """A product network interface — maps port to subnet role."""
+    port_name: str = Field(description="product port (e.g., 'port1', 'port2')")
     subnet_role: str = Field(description="Which subnet role this port connects to")
     description: str = Field(description="Interface purpose (e.g., 'External/WAN', 'HA heartbeat')")
 
 
-class FortiGateBlueprint(BaseModel):
-    """A FortiGate instance's placement and interface layout."""
+class productBlueprint(BaseModel):
+    """A product instance's placement and interface layout."""
     role: str = Field(description="Instance role — KB-sourced (e.g., 'active', 'passive', 'target')")
-    vpc_role: str = Field(description="Which VPC (by role) this FortiGate belongs to")
+    vpc_role: str = Field(description="Which VPC (by role) this product belongs to")
     interfaces: list[InterfaceBlueprint]
 
 
@@ -166,15 +166,15 @@ class DesignOption(BaseModel):
     )
     use_case: str = Field(description="Primary use case (e.g., 'sd-wan', 'inspection')")
     ha_mode: str = Field(description="HA configuration (e.g., 'active-passive', 'active-active', 'standalone')")
-    fortigate_instance_type: str = Field(description="EC2 instance type from KB sizing (e.g., 'c5.xlarge')")
+    product_instance_type: str = Field(description="EC2 instance type from KB sizing (e.g., 'c5.xlarge')")
     aws_services: list[str] = Field(description="All AWS services used")
 
     # --- Topology blueprints (the key structural output) ---
     vpc_topology: list[VPCBlueprint] = Field(
         description="VPCs needed, with subnet roles per VPC. Drives parameter resolver."
     )
-    fortigate_topology: list[FortiGateBlueprint] = Field(
-        description="FortiGate instances with interface-to-subnet mappings. Drives IP assignment."
+    product_topology: list[productBlueprint] = Field(
+        description="product instances with interface-to-subnet mappings. Drives IP assignment."
     )
 
     # --- Code template match ---
@@ -239,7 +239,7 @@ class DeploymentParameters(BaseModel):
         default_factory=dict,
         description="Pattern-specific parameters. Keys and types determined by RefinementPlan "
         "which is generated from KB configuration docs. Examples: existing_tgw_id, "
-        "customer_vpc_cidrs, tgw_asn, license_type, fortigate_version, admin_cidr."
+        "customer_vpc_cidrs, tgw_asn, license_type, product_version, admin_cidr."
     )
 ```
 
@@ -284,7 +284,7 @@ class RefinementPlan(BaseModel):
 ### 3.5 ResolvedIaCParameters — Deterministic Output (to IaC agent)
 
 Structural models for the resolved output. The resolver reads `vpc_topology` and
-`fortigate_topology` from the design to know exactly what to compute.
+`product_topology` from the design to know exactly what to compute.
 Pattern-specific extras (TGW config, GWLB config) go in `additional_resolved`.
 
 ```python
@@ -305,7 +305,7 @@ class ResolvedVPC(BaseModel):
 
 
 class ResolvedInterface(BaseModel):
-    """A FortiGate interface with assigned IP."""
+    """A product interface with assigned IP."""
     port_name: str                      # "port1"
     subnet_name: str                    # References SubnetSpec.name
     private_ip: str                     # Computed (e.g., "10.0.1.11")
@@ -313,10 +313,10 @@ class ResolvedInterface(BaseModel):
     source_dest_check: bool = False
 
 
-class ResolvedFortiGate(BaseModel):
-    """A fully resolved FortiGate instance."""
+class Resolvedproduct(BaseModel):
+    """A fully resolved product instance."""
     name: str                           # "{project}-fgt-active"
-    role: str                           # From FortiGateBlueprint.role
+    role: str                           # From productBlueprint.role
     instance_type: str
     availability_zone: str
     interfaces: list[ResolvedInterface]
@@ -339,8 +339,8 @@ class ResolvedIaCParameters(BaseModel):
     # --- Network ---
     vpcs: list[ResolvedVPC]
 
-    # --- FortiGate ---
-    fortigate_instances: list[ResolvedFortiGate]
+    # --- product ---
+    product_instances: list[Resolvedproduct]
 
     # --- Code template ---
     code_template_s3_prefix: str | None = None   # If template match exists
@@ -350,7 +350,7 @@ class ResolvedIaCParameters(BaseModel):
     additional_resolved: dict[str, Any] = Field(
         default_factory=dict,
         description="Pattern-specific resolved values. Examples: tgw_asn, gwlb_cross_zone, "
-        "license_type, fortigate_version, admin_cidr. Keys come from RefinementPlan fields."
+        "license_type, product_version, admin_cidr. Keys come from RefinementPlan fields."
     )
 
     # --- Tags ---
@@ -410,12 +410,12 @@ class DesignTask(BaseModel):
 ### 4.1 SQS FIFO Queue
 
 ```
-Queue Name:          ai-lcm-design-tasks.fifo
+Queue Name:          ai-deploy-design-tasks.fifo
 Message Group ID:    {tenant_id}#{project_id}     ← one design per project at a time
 Deduplication:       Content-based                 ← prevents double-submit
 Visibility Timeout:  300 seconds                   ← 2.5× max processing time
 Message Retention:   4 days
-DLQ:                 ai-lcm-design-dlq.fifo
+DLQ:                 ai-deploy-design-dlq.fifo
   Max Receive Count: 3                             ← after 3 failures, send to DLQ
 ```
 
@@ -435,14 +435,14 @@ DLQ:                 ai-lcm-design-dlq.fifo
 ### 4.2 Lambda Worker
 
 ```
-Function Name:       ai-lcm-design-worker
+Function Name:       ai-deploy-design-worker
 Runtime:             Container image (from backend Dockerfile.lambda)
 Handler:             src.workers.design_worker.handler
 Memory:              2048 MB (I/O-bound Bedrock calls, module-level client init)
 Timeout:             300 seconds
 Reserved Concurrency: 10 (prevent Bedrock throttling)
 Event Source:        SQS FIFO queue (batch size: 1)
-Environment:         Same as ECS task (AI_LCM_* variables)
+Environment:         Same as ECS task (AI_DEPLOY_* variables)
 ```
 
 **Worker Flow:**
@@ -592,7 +592,7 @@ Routes:
 
 ### 5.2 Connection Tracking (DynamoDB)
 
-Uses the existing `ai-lcm-table` with two item patterns:
+Uses the existing `ai-deploy-table` with two item patterns:
 
 ```
 # Connection record (created on $connect)
@@ -640,12 +640,12 @@ to DynamoDB; the notification fires automatically via DynamoDB Stream → EventB
 - EventBridge Pipe has built-in filtering, batching, and error handling with DLQ
 
 ```
-DynamoDB Stream (table: ai-lcm-table)
+DynamoDB Stream (table: ai-deploy-table)
   │
   │ Stream view type: NEW_AND_OLD_IMAGES (required for status change detection)
   │
   ▼
-EventBridge Pipe (ai-lcm-design-notification-pipe)
+EventBridge Pipe (ai-deploy-design-notification-pipe)
   │
   │ Source filter (DynamoDB Stream):
   │   eventName: MODIFY
@@ -656,7 +656,7 @@ EventBridge Pipe (ai-lcm-design-notification-pipe)
   │ Enrichment: None (Lambda target receives filtered stream record directly)
   │
   ▼
-Lambda: ws-notification-bridge (ai-lcm-ws-notification-bridge)
+Lambda: ws-notification-bridge (ai-deploy-ws-notification-bridge)
   │
   │ 1. Extract task_id, tenant_id, project_id, status from stream NewImage
   │ 2. Skip if NewImage.status == OldImage.status (no actual change)
@@ -690,7 +690,7 @@ API Gateway drops WebSocket connections after **10 minutes of inactivity**.
 A scheduled Lambda proactively pings all connections and cleans up stale ones.
 
 ```
-Function Name:       ai-lcm-ws-heartbeat
+Function Name:       ai-deploy-ws-heartbeat
 Implementation:      backend/lambdas/ws/ws_heartbeat.py
 Trigger:             EventBridge Scheduler — every 5 minutes
 Memory:              256 MB
@@ -751,7 +751,7 @@ Adding a new deployment pattern = uploading docs + templates to S3 + re-syncing 
 ### 6.1 KB S3 Naming Convention
 
 ```
-s3://ai-lcm-knowledge-base/
+s3://ai-deploy-knowledge-base/
 │
 ├── {use_case}/                           # sd-wan, egress, ingress, inspection
 │   ├── {deployment_type}/                # hub-spoke, dual-hub, single-az, gwlb, etc.
@@ -767,7 +767,7 @@ s3://ai-lcm-knowledge-base/
 │   │   └── code/                         # CloudFormation templates (NOT in KB vector index)
 │   │       ├── template.yaml             # THE MAIN TEMPLATE — includes Parameters section
 │   │       ├── networking.yaml           # Nested stack or snippet (optional)
-│   │       ├── fortigate.yaml            # Nested stack or snippet (optional)
+│   │       ├── product.yaml            # Nested stack or snippet (optional)
 │   │       └── security-groups.yaml      # Nested stack or snippet (optional)
 │   │
 │   └── {deployment_type_2}/
@@ -776,7 +776,7 @@ s3://ai-lcm-knowledge-base/
 └── components/                           # Reusable CloudFormation building blocks
     ├── vpc/
     │   └── snippet.yaml
-    ├── fortigate-ha/
+    ├── product-ha/
     │   └── snippet.yaml
     ├── gwlb/
     │   └── snippet.yaml
@@ -822,15 +822,15 @@ class TemplateInfo(BaseModel):
     use_case: str
     deployment_type: str
     s3_prefix: str            # "sd-wan/hub-spoke/code/"
-    template_files: list[str] # ["template.yaml", "networking.yaml", "fortigate.yaml", ...]
+    template_files: list[str] # ["template.yaml", "networking.yaml", "product.yaml", ...]
 ```
 
 **Template discovery is injected into the design agent's prompt:**
 ```
 Available CloudFormation templates for your use cases:
-- sd-wan/hub-spoke/code/ (template.yaml, networking.yaml, fortigate.yaml, security-groups.yaml)
-- sd-wan/dual-hub/code/ (template.yaml, networking.yaml, fortigate.yaml)
-- inspection/centralized/code/ (template.yaml, fortigate.yaml, gwlb.yaml)
+- sd-wan/hub-spoke/code/ (template.yaml, networking.yaml, product.yaml, security-groups.yaml)
+- sd-wan/dual-hub/code/ (template.yaml, networking.yaml, product.yaml)
+- inspection/centralized/code/ (template.yaml, product.yaml, gwlb.yaml)
 
 If a template matches your design, set has_code_template=true and template_s3_prefix accordingly.
 If no template matches (novel pattern), set has_code_template=false. The IaC agent will generate
@@ -850,15 +850,15 @@ kb_context = {}
 for uc in requirements.use_cases:
     kb_context[uc] = {
         "architecture": kb_search_filtered(
-            query=f"FortiGate {uc} deployment architecture AWS",
+            query=f"product {uc} deployment architecture AWS",
             use_case=uc, document_type="architecture", max_results=5,
         ),
         "sizing": kb_search_filtered(
-            query=f"FortiGate {uc} instance sizing {requirements.bandwidth}Mbps",
+            query=f"product {uc} instance sizing {requirements.bandwidth}Mbps",
             use_case=uc, document_type="sizing", max_results=3,
         ),
         "best_practices": kb_search_filtered(
-            query=f"FortiGate {uc} AWS best practices {requirements.resilience}",
+            query=f"product {uc} AWS best practices {requirements.resilience}",
             use_case=uc, document_type="best-practices", max_results=3,
         ),
     }
@@ -882,7 +882,7 @@ if selected_design.has_code_template:
 
 # Step 2: KB search for configuration docs
 config_results = kb_search_filtered(
-    query=f"FortiGate {selected_design.deployment_pattern} configuration parameters",
+    query=f"product {selected_design.deployment_pattern} configuration parameters",
     use_case=selected_design.use_case,
     deployment_type=selected_design.deployment_pattern,
     document_type="configuration",
@@ -892,14 +892,14 @@ config_results = kb_search_filtered(
 # Step 3: Haiku generates RefinementPlan from:
 #   - CloudFormation Parameters section (if template exists)
 #   - KB configuration docs
-#   - Selected design's topology (vpc_topology, fortigate_topology)
+#   - Selected design's topology (vpc_topology, product_topology)
 ```
 
 ### 6.5 Validation
 
 Post-generation validation (no enum checking, structural + grounding checks):
 - Every `DesignOption` has at least 1 `kb_reference` (non-empty citations)
-- Every `fortigate_topology[].interfaces[].subnet_role` references a role in `vpc_topology[].subnet_roles` (cross-referential consistency)
+- Every `product_topology[].interfaces[].subnet_role` references a role in `vpc_topology[].subnet_roles` (cross-referential consistency)
 - `has_code_template=true` ⟹ `template_s3_prefix` is non-null and S3 path exists
 - `vpc_topology` is non-empty (every design needs at least one VPC)
 
@@ -947,7 +947,7 @@ POST /api/design/refine {deployment_parameters}
   │
   ▼
 Backend: ParameterResolver.resolve()
-  │ Reads vpc_topology + fortigate_topology from design
+  │ Reads vpc_topology + product_topology from design
   │ Computes subnets, IPs, tags from user params + topology
   │ If template: fetches all template files from S3
   │ Store resolved params in DynamoDB
@@ -1022,7 +1022,7 @@ blueprint's VPC/subnet/interface specifications.
 ```
 Inputs:
   DesignOption.vpc_topology         — What VPCs and subnet roles to create
-  DesignOption.fortigate_topology   — What interfaces to assign IPs to
+  DesignOption.product_topology   — What interfaces to assign IPs to
   DeploymentParameters                — User-provided CIDR, region, extras
   InterviewOutput                     — Original requirements (for tagging)
 
@@ -1053,15 +1053,15 @@ class ParameterResolver:
                 subnets=subnets,
             ))
 
-        # Resolve each FortiGate from its blueprint
+        # Resolve each product from its blueprint
         fgts = []
-        for i, fgt_bp in enumerate(design.fortigate_topology):
+        for i, fgt_bp in enumerate(design.product_topology):
             vpc = next(v for v in vpcs if v.role == fgt_bp.vpc_role)
             interfaces = self._assign_interfaces(vpc.subnets, fgt_bp.interfaces, fgt_index=i)
-            fgts.append(ResolvedFortiGate(
+            fgts.append(Resolvedproduct(
                 name=f"{params.project_name}-fgt-{fgt_bp.role}",
                 role=fgt_bp.role,
-                instance_type=design.fortigate_instance_type,
+                instance_type=design.product_instance_type,
                 availability_zone=azs[i % len(azs)],
                 interfaces=interfaces,
             ))
@@ -1077,12 +1077,12 @@ class ParameterResolver:
             region=params.aws_region,
             availability_zones=azs,
             vpcs=vpcs,
-            fortigate_instances=fgts,
+            product_instances=fgts,
             code_template_s3_prefix=design.template_s3_prefix,
             code_template_files=template_files,
             additional_resolved=params.additional_parameters,  # Pass-through KB-driven extras
             tags={"Project": params.project_name, "Environment": params.environment,
-                  "ManagedBy": "ai-lcm", "DeploymentPattern": design.deployment_pattern},
+                  "ManagedBy": "ai-deploy", "DeploymentPattern": design.deployment_pattern},
             design_option_name=design.name,
             deployment_pattern=design.deployment_pattern,
             requirements_hash=hashlib.sha256(requirements.model_dump_json().encode()).hexdigest()[:12],
@@ -1122,7 +1122,7 @@ def _compute_subnets(self, vpc_cidr: str, azs: list[str], subnet_roles: list[str
 def _assign_interfaces(self, subnets: list[SubnetSpec],
                         interface_bps: list[InterfaceBlueprint],
                         fgt_index: int) -> list[ResolvedInterface]:
-    """Assign IPs to FortiGate interfaces based on blueprint.
+    """Assign IPs to product interfaces based on blueprint.
 
     Convention: .11 for first FGT (active), .12 for second (passive), .13 for third, etc.
     The blueprint tells us which port connects to which subnet role.
@@ -1238,7 +1238,7 @@ The new system prompt enforces KB-grounded design generation:
    - Option 1: Cost-optimized (simpler, fewer services)
    - Option 2: Balanced (recommended for most scenarios)
    - Option 3: Enterprise-grade (maximum resilience/features)
-6. **Build topology blueprints** — every option must include `vpc_topology` and `fortigate_topology`
+6. **Build topology blueprints** — every option must include `vpc_topology` and `product_topology`
    that accurately reflect the KB reference architecture.
 7. **Run WA evaluation** — for each option before finalizing
 8. **Realistic cost estimates** — based on KB sizing docs
@@ -1292,7 +1292,7 @@ possible. The same business logic code (`process_design_task`, `ws_manager`, sta
 runs in both environments. Only the **transport/infrastructure layer** differs.
 
 **Key abstraction:** The backend uses **protocol-based dispatch** controlled by environment
-variables. When `AI_LCM_SQS_DESIGN_QUEUE_URL` is set → AWS mode. When unset → local mode.
+variables. When `AI_DEPLOY_SQS_DESIGN_QUEUE_URL` is set → AWS mode. When unset → local mode.
 
 ### 12.1 Component Mapping
 
@@ -1305,7 +1305,7 @@ variables. When `AI_LCM_SQS_DESIGN_QUEUE_URL` is set → AWS mode. When unset �
 | API Gateway WebSocket API | FastAPI native WebSocket at `/ws` | Same message format, same subscription model |
 | DynamoDB + S3 Storage | Local JSON files in `.local-data/` | `ProjectStore` protocol (`storage/protocol.py`) |
 | Cognito JWT Auth | Query parameter `?tenant_id=default` | `get_tenant_id()` in `config/auth.py` |
-| CloudWatch Metrics | Disabled (no-op) | `AI_LCM_METRICS_ENABLED=false` |
+| CloudWatch Metrics | Disabled (no-op) | `AI_DEPLOY_METRICS_ENABLED=false` |
 
 ### 12.2 Local Worker Architecture
 
@@ -1389,25 +1389,25 @@ Locally, `notify_fn` is `ws_manager.notify`.
 
 ```bash
 # .env (local development)
-AI_LCM_STORAGE_BACKEND=local
-AI_LCM_DEBUG=true
-AI_LCM_CORS_ORIGINS=["http://localhost:3000"]
-# AI_LCM_SQS_DESIGN_QUEUE_URL is NOT set → local worker mode
-# AI_LCM_COGNITO_USER_POOL_ID is NOT set → no auth mode
-# AI_LCM_WEBSOCKET_URL is NOT set → local WS mode
+AI_DEPLOY_STORAGE_BACKEND=local
+AI_DEPLOY_DEBUG=true
+AI_DEPLOY_CORS_ORIGINS=["http://localhost:3000"]
+# AI_DEPLOY_SQS_DESIGN_QUEUE_URL is NOT set → local worker mode
+# AI_DEPLOY_COGNITO_USER_POOL_ID is NOT set → no auth mode
+# AI_DEPLOY_WEBSOCKET_URL is NOT set → local WS mode
 
 # AWS (production) — set by CDK via ECS task definition
-AI_LCM_STORAGE_BACKEND=aws
-AI_LCM_DEBUG=false
-AI_LCM_DYNAMODB_TABLE=ai-lcm-table-prod
-AI_LCM_S3_ARTIFACTS_BUCKET=ai-lcm-artifacts-prod
-AI_LCM_S3_KNOWLEDGE_BASE_BUCKET=ai-lcm-knowledge-base-prod
-AI_LCM_SQS_DESIGN_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/123/ai-lcm-design-tasks.fifo
-AI_LCM_WEBSOCKET_URL=wss://xxx.execute-api.us-east-1.amazonaws.com/prod
-AI_LCM_COGNITO_USER_POOL_ID=us-east-1_xxx
-AI_LCM_COGNITO_CLIENT_ID=xxx
-AI_LCM_KNOWLEDGE_BASE_ID=xxx
-AI_LCM_METRICS_ENABLED=true
+AI_DEPLOY_STORAGE_BACKEND=aws
+AI_DEPLOY_DEBUG=false
+AI_DEPLOY_DYNAMODB_TABLE=ai-deploy-table-prod
+AI_DEPLOY_S3_ARTIFACTS_BUCKET=ai-deploy-artifacts-prod
+AI_DEPLOY_S3_KNOWLEDGE_BASE_BUCKET=ai-deploy-knowledge-base-prod
+AI_DEPLOY_SQS_DESIGN_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/123/ai-deploy-design-tasks.fifo
+AI_DEPLOY_WEBSOCKET_URL=wss://xxx.execute-api.us-east-1.amazonaws.com/prod
+AI_DEPLOY_COGNITO_USER_POOL_ID=us-east-1_xxx
+AI_DEPLOY_COGNITO_CLIENT_ID=xxx
+AI_DEPLOY_KNOWLEDGE_BASE_ID=xxx
+AI_DEPLOY_METRICS_ENABLED=true
 ```
 
 ### 12.6 What's NOT Parity (Acceptable Gaps)

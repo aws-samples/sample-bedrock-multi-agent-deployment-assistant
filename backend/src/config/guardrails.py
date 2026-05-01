@@ -1,10 +1,10 @@
 """Bedrock Guardrails configuration for agent models.
 
-When AI_LCM_GUARDRAIL_ID is set, all agents automatically apply guardrails.
+When AI_DEPLOY_GUARDRAIL_ID is set, all agents automatically apply guardrails.
 The guardrail should be created in the AWS Bedrock console with these settings:
 
 - Content filters: Block hate, insults, sexual, violence (HIGH threshold)
-- Denied topics: Competitor products, non-FortiGate discussions
+- Denied topics: Non-catalog products, off-topic discussions
 - PII masking: Redact emails, phone numbers, AWS account IDs
 - Grounding check: Verify outputs align with KB sources (threshold 0.7)
 - Word filters: Block competitor brand names

@@ -78,15 +78,15 @@ function WellArchitectedBadges({
 
 function TopologySummary({ option }: { option: DesignOption }) {
   const vpcCount = option.vpc_topology?.length ?? 0;
-  const fgtCount = option.fortigate_topology?.length ?? 0;
+  const instanceCount = option.appliance_topology?.length ?? 0;
 
-  if (vpcCount === 0 && fgtCount === 0) return null;
+  if (vpcCount === 0 && instanceCount === 0) return null;
 
   return (
     <div className="mt-3 text-sm text-gray-600">
       <span className="font-medium text-gray-700">Topology:</span>{" "}
       {vpcCount} VPC{vpcCount !== 1 ? "s" : ""},{" "}
-      {fgtCount} FortiGate{fgtCount !== 1 ? "s" : ""}
+      {instanceCount} instance{instanceCount !== 1 ? "s" : ""}
     </div>
   );
 }
@@ -249,7 +249,7 @@ export function DesignReview({
                 <div className="bg-gray-50 p-2.5 rounded-lg">
                   <span className="text-gray-500 block text-xs">Instance Type</span>
                   <span className="font-medium text-gray-900">
-                    {option.fortigate_instance_type}
+                    {option.appliance_instance_type}
                   </span>
                 </div>
               </div>
@@ -343,7 +343,7 @@ export function DesignReview({
                 value={feedback}
                 onChange={(e) => setFeedback(e.target.value)}
                 rows={3}
-                placeholder="e.g., I need a lower-cost option, or I need GWLB instead of TGW routing..."
+                placeholder="e.g., I need a lower-cost option, or a different instance type..."
                 className="w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder:text-gray-400"
               />
               <div className="flex gap-3">

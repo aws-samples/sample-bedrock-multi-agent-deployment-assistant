@@ -1,6 +1,6 @@
 """Cognito JWT authentication middleware.
 
-When AI_LCM_COGNITO_USER_POOL_ID and AI_LCM_COGNITO_CLIENT_ID are set,
+When AI_DEPLOY_COGNITO_USER_POOL_ID and AI_DEPLOY_COGNITO_CLIENT_ID are set,
 API endpoints require a valid JWT Bearer token. The tenant_id is extracted
 from the token's custom:tenant_id claim.
 
