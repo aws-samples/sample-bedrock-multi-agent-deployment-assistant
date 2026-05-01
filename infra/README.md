@@ -1,6 +1,6 @@
 # Infrastructure
 
-AWS CDK v2 / TypeScript — deploys the complete AI-LCM platform to AWS.
+AWS CDK v2 / TypeScript — deploys the complete AI-Deploy platform to AWS.
 
 ## Quick Start
 
@@ -15,10 +15,10 @@ Requires `CDK_DEFAULT_ACCOUNT` and `CDK_DEFAULT_REGION` environment variables, a
 
 ## Stack Architecture
 
-All resources are deployed in a single `AiLcmStack`. The stack is composed of 12 custom constructs:
+All resources are deployed in a single `AiDeployStack`. The stack is composed of 12 custom constructs:
 
 ```
-AiLcmStack
+AiDeployStack
 ├── KmsConstruct          # Customer-managed encryption key
 ├── DynamoDbConstruct     # Project metadata + task state
 ├── S3Construct           # 3 buckets (knowledge base, artifacts, access logs)
@@ -38,7 +38,7 @@ AiLcmStack
 | Construct | File | Key Resources |
 |-----------|------|---------------|
 | **KMS** | `lib/kms.ts` | Customer-managed key (auto-rotation), SSM parameter for ARN |
-| **DynamoDB** | `lib/dynamodb.ts` | `ai-lcm-table-{env}`, pk/sk + 2 GSIs, PITR, streams, KMS |
+| **DynamoDB** | `lib/dynamodb.ts` | `ai-deploy-table-{env}`, pk/sk + 2 GSIs, PITR, streams, KMS |
 | **S3** | `lib/s3.ts` | Knowledge base (versioned, RETAIN), artifacts (90-day lifecycle, DESTROY), access logs |
 | **Cognito** | `lib/cognito.ts` | User pool (email, MFA required), web client (SRP auth), custom `tenant_id` attribute |
 | **SQS** | `lib/sqs.ts` | 3 FIFO queues (design/IaC/docs) + 3 DLQs, KMS encrypted, content-based dedup |

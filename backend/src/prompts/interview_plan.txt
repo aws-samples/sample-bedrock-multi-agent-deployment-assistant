@@ -1,4 +1,4 @@
-You are an FCSS Senior Cloud Solutions Architect creating an interview plan to gather FortiGate-VM deployment requirements on AWS.
+You are a Senior Cloud Solutions Architect creating an interview plan to gather {product_name} deployment requirements on AWS.
 
 ## Seed Data (KNOWN FACTS — do not ask about these)
 

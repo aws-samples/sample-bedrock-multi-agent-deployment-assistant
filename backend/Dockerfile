@@ -23,15 +23,14 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ---- Stage 2: Runtime — lean, non-root image ----
 FROM python@sha256:73dbd1a2ad74137451593a8ac30f7bdd0f5010fc05fb34644190cffa7696bbf3
 
-LABEL org.opencontainers.image.source="https://github.com/FortiNet/ai-lcm" \
-      org.opencontainers.image.title="ai-lcm-backend" \
-      org.opencontainers.image.description="AI-LCM FortiGate Lifecycle Management backend"
+LABEL org.opencontainers.image.source="https://github.com/ai-deploy-assistant" \
+      org.opencontainers.image.title="ai-deploy-backend" \
+      org.opencontainers.image.description="AI Deploy Assistant backend"
 
-# tini: PID 1 init for signal forwarding and zombie reaping (app subprocesses graphviz, checkov, cfn-lint)
-# graphviz: required by the `diagrams` library for diagram rendering
+# tini: PID 1 init for signal forwarding and zombie reaping (app subprocesses checkov, cfn-lint)
 # nodejs: required by the Mermaid diagram validator (docs agent validate-fix loop)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends tini graphviz nodejs npm && \
+    apt-get install -y --no-install-recommends tini nodejs npm && \
     rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --gid 65532 appuser && \
@@ -57,7 +56,7 @@ EXPOSE 8000 8080
 USER appuser
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import os,urllib.request; port='8080' if os.environ.get('AI_LCM_MODE')=='agentcore' else os.environ.get('AI_LCM_PORT','8000'); urllib.request.urlopen(f'http://localhost:{port}/ping')"
+    CMD python -c "import os,urllib.request; port='8080' if os.environ.get('AI_DEPLOY_MODE')=='agentcore' else os.environ.get('AI_DEPLOY_PORT','8000'); urllib.request.urlopen(f'http://localhost:{port}/ping')"
 
 ENTRYPOINT ["tini", "--"]
 CMD ["./entrypoint.sh"]

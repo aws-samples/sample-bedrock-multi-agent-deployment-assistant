@@ -63,36 +63,36 @@ class TestEnrichPlan:
 
         output = QuestionPlanOutput(
             questions=[
-                PlannedQuestionLLM(field_path="sd-wan.role", question_template="Role?"),
-                PlannedQuestionLLM(field_path="sd-wan.performance", question_template="Perf?"),
+                PlannedQuestionLLM(field_path="realtime-inference.model_size_category", question_template="Model size?"),
+                PlannedQuestionLLM(field_path="realtime-inference.quantization", question_template="Quantization?"),
             ],
             initial_message="Hello!",
         )
-        plan = _enrich_plan(output, [UseCases.SD_WAN], {})
-        role_entry = next(e for e in plan.entries if e.field_path == "sd-wan.role")
-        perf_entry = next(e for e in plan.entries if e.field_path == "sd-wan.performance")
+        plan = _enrich_plan(output, ["realtime-inference"], {})
+        required_entry = next(e for e in plan.entries if e.field_path == "realtime-inference.model_size_category")
+        optional_entry = next(e for e in plan.entries if e.field_path == "realtime-inference.quantization")
 
-        # "performance" is optional for SD-WAN in the registry
-        assert perf_entry.is_optional is True
-        assert perf_entry.is_blocking is False
-        # "role" is required
-        assert role_entry.is_optional is False
-        assert role_entry.is_blocking is True
+        # "quantization" is optional for realtime-inference in the catalog
+        assert optional_entry.is_optional is True
+        assert optional_entry.is_blocking is False
+        # "model_size_category" is required
+        assert required_entry.is_optional is False
+        assert required_entry.is_blocking is True
 
     def test_preserves_auto_filled(self):
         from src.agents.interview_planner import _enrich_plan
 
         output = QuestionPlanOutput(
-            auto_filled_fields={"bandwidth": 5000},
-            auto_fill_rationale={"bandwidth": "From wizard"},
+            auto_filled_fields={"gpu_budget": "high"},
+            auto_fill_rationale={"gpu_budget": "From wizard"},
             questions=[],
             initial_message="Ready!",
         )
-        seed = {"use_cases": ["sd-wan"]}
-        plan = _enrich_plan(output, [UseCases.SD_WAN], seed)
-        assert plan.auto_filled == {"bandwidth": 5000}
-        assert plan.populated_fields["bandwidth"] == 5000
-        assert plan.populated_fields["use_cases"] == ["sd-wan"]
+        seed = {"use_cases": ["realtime-inference"]}
+        plan = _enrich_plan(output, ["realtime-inference"], seed)
+        assert plan.auto_filled == {"gpu_budget": "high"}
+        assert plan.populated_fields["gpu_budget"] == "high"
+        assert plan.populated_fields["use_cases"] == ["realtime-inference"]
 
     def test_base_optional_fields(self):
         from src.agents.interview_planner import _enrich_plan
@@ -119,18 +119,18 @@ class TestFallbackPlan:
     def test_generates_entries_from_schema(self):
         from src.agents.interview_planner import _fallback_plan
 
-        plan = _fallback_plan([UseCases.SD_WAN], {"use_cases": ["sd-wan"]}, None)
+        plan = _fallback_plan(["realtime-inference"], {"use_cases": ["realtime-inference"]}, None)
         assert len(plan.entries) > 0
         # Should have field paths from the schema
         paths = [e.field_path for e in plan.entries]
         assert len(paths) > 0
         # Seed data should be in populated_fields
-        assert plan.populated_fields.get("use_cases") == ["sd-wan"]
+        assert plan.populated_fields.get("use_cases") == ["realtime-inference"]
 
     def test_fallback_has_no_kb_context(self):
         from src.agents.interview_planner import _fallback_plan
 
-        plan = _fallback_plan([UseCases.EGRESS], {}, None)
+        plan = _fallback_plan(["batch-inference"], {}, None)
         for entry in plan.entries:
             assert entry.kb_context == ""
             assert entry.skip_conditions == []
@@ -148,7 +148,7 @@ class TestKBSearchHelpers:
 
         mock_kb.return_value = [KBResult(text="result", source_uri="s3://b/d.pdf", score=0.9)]
         results = _search_kb_for_planning(
-            [UseCases.SD_WAN, UseCases.INSPECTION],
+            ["realtime-inference", "training"],
             {"solution_description": "test"},
         )
         # Should call kb_search_filtered once per non-NOTKNOWN use case
@@ -160,7 +160,7 @@ class TestKBSearchHelpers:
         from src.agents.interview_planner import _search_kb_for_planning
 
         mock_kb.return_value = []
-        _search_kb_for_planning([UseCases.NOTKNOWN], {})
+        _search_kb_for_planning(["notknown"], {})
         mock_kb.assert_not_called()
 
     @patch("src.agents.interview_planner.kb_search_filtered")
@@ -168,9 +168,9 @@ class TestKBSearchHelpers:
         from src.agents.interview_planner import _search_kb_for_replan
 
         mock_kb.return_value = []
-        _search_kb_for_replan([UseCases.SD_WAN], "User wants multi-region", "hub-spoke")
+        _search_kb_for_replan(["realtime-inference"], "User wants multi-region", "auto-scaling-fleet")
         call_kwargs = mock_kb.call_args[1]
-        assert call_kwargs["deployment_type"] == "hub-spoke"
+        assert call_kwargs["deployment_type"] == "auto-scaling-fleet"
 
 
 # ===================================================================
@@ -188,31 +188,31 @@ class TestGeneratePlan:
         mock_kb.return_value = []
         mock_result = MagicMock()
         mock_result.structured_output = QuestionPlanOutput(
-            auto_filled_fields={"bandwidth": 1000},
-            auto_fill_rationale={"bandwidth": "From seed"},
+            auto_filled_fields={"gpu_budget": "moderate"},
+            auto_fill_rationale={"gpu_budget": "From seed"},
             questions=[
                 PlannedQuestionLLM(
-                    field_path="sd-wan.role",
-                    question_template="What role should the FortiGate play?",
+                    field_path="realtime-inference.model_size_category",
+                    question_template="What model size category do you need?",
                     expected_type="enum",
-                    valid_values=["hub", "spoke"],
+                    valid_values=["small", "medium", "large", "very-large"],
                 ),
             ],
             kb_summary="Found architecture docs",
-            initial_message="Welcome! I see you need SD-WAN.",
+            initial_message="Welcome! I see you need real-time inference.",
         )
         mock_invoke.return_value = mock_result
 
         with patch("src.config.metrics.metrics", MagicMock()):
             plan, message = generate_plan(
-                seed_data={"use_cases": ["sd-wan"]},
-                use_cases=[UseCases.SD_WAN],
+                seed_data={"use_cases": ["realtime-inference"]},
+                use_cases=["realtime-inference"],
             )
 
         assert isinstance(plan, QuestionPlan)
-        assert message == "Welcome! I see you need SD-WAN."
-        assert plan.entries[0].field_path == "sd-wan.role"
-        assert plan.auto_filled["bandwidth"] == 1000
+        assert message == "Welcome! I see you need real-time inference."
+        assert plan.entries[0].field_path == "realtime-inference.model_size_category"
+        assert plan.auto_filled["gpu_budget"] == "moderate"
 
     @patch("src.agents.interview_planner.kb_search_filtered")
     @patch("src.agents.interview_planner._invoke_planner")
@@ -228,7 +228,7 @@ class TestGeneratePlan:
         with patch("src.config.metrics.metrics", MagicMock()):
             plan, message = generate_plan(
                 seed_data={},
-                use_cases=[UseCases.SD_WAN],
+                use_cases=["realtime-inference"],
             )
 
         assert isinstance(plan, QuestionPlan)
@@ -268,7 +268,7 @@ class TestReplan:
         )
 
         with patch("src.config.metrics.metrics", MagicMock()):
-            new_plan, msg = replan(current, "User wants multi-region", [UseCases.SD_WAN])
+            new_plan, msg = replan(current, "User wants multi-region", ["realtime-inference"])
 
         assert msg == "Updated plan!"
         # Answered entry is preserved
@@ -297,7 +297,7 @@ class TestReplan:
         )
 
         with patch("src.config.metrics.metrics", MagicMock()):
-            result_plan, msg = replan(current, "deviation", [UseCases.SD_WAN])
+            result_plan, msg = replan(current, "deviation", ["realtime-inference"])
 
         # Fallback: returns current plan unchanged
         assert result_plan is current

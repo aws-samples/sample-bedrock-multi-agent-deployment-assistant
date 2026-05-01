@@ -22,7 +22,7 @@ export class SqsConstruct extends Construct {
 
     // Dead-letter queue for failed design task messages
     this.designDlq = new sqs.Queue(this, "DesignDlq", {
-      queueName: "ai-lcm-design-dlq.fifo",
+      queueName: "ai-deploy-design-dlq.fifo",
       fifo: true,
       retentionPeriod: cdk.Duration.days(14),
       encryption: sqs.QueueEncryption.KMS,
@@ -31,10 +31,10 @@ export class SqsConstruct extends Construct {
 
     // Main FIFO queue for design task processing
     this.designQueue = new sqs.Queue(this, "DesignQueue", {
-      queueName: "ai-lcm-design-tasks.fifo",
+      queueName: "ai-deploy-design-tasks.fifo",
       fifo: true,
       contentBasedDeduplication: true,
-      visibilityTimeout: cdk.Duration.seconds(300),
+      visibilityTimeout: cdk.Duration.minutes(30),
       retentionPeriod: cdk.Duration.days(4),
       encryption: sqs.QueueEncryption.KMS,
       encryptionMasterKey: props.encryptionKey,
@@ -46,7 +46,7 @@ export class SqsConstruct extends Construct {
 
     // Dead-letter queue for failed IaC task messages
     this.iacDlq = new sqs.Queue(this, "IaCDLQ", {
-      queueName: "ai-lcm-iac-dlq.fifo",
+      queueName: "ai-deploy-iac-dlq.fifo",
       fifo: true,
       retentionPeriod: cdk.Duration.days(14),
       encryption: sqs.QueueEncryption.KMS,
@@ -55,10 +55,10 @@ export class SqsConstruct extends Construct {
 
     // Main FIFO queue for IaC task processing
     this.iacQueue = new sqs.Queue(this, "IaCQueue", {
-      queueName: "ai-lcm-iac-tasks.fifo",
+      queueName: "ai-deploy-iac-tasks.fifo",
       fifo: true,
       contentBasedDeduplication: true,
-      visibilityTimeout: cdk.Duration.minutes(15), // Lambda timeout = 15 min for IaC
+      visibilityTimeout: cdk.Duration.minutes(90), // 6x Lambda timeout (15 min)
       retentionPeriod: cdk.Duration.days(4),
       encryption: sqs.QueueEncryption.KMS,
       encryptionMasterKey: props.encryptionKey,
@@ -70,7 +70,7 @@ export class SqsConstruct extends Construct {
 
     // Dead-letter queue for failed docs task messages
     this.docsDlq = new sqs.Queue(this, "DocsDLQ", {
-      queueName: "ai-lcm-docs-dlq.fifo",
+      queueName: "ai-deploy-docs-dlq.fifo",
       fifo: true,
       retentionPeriod: cdk.Duration.days(14),
       encryption: sqs.QueueEncryption.KMS,
@@ -79,10 +79,10 @@ export class SqsConstruct extends Construct {
 
     // Main FIFO queue for docs task processing
     this.docsQueue = new sqs.Queue(this, "DocsQueue", {
-      queueName: "ai-lcm-docs-tasks.fifo",
+      queueName: "ai-deploy-docs-tasks.fifo",
       fifo: true,
       contentBasedDeduplication: true,
-      visibilityTimeout: cdk.Duration.minutes(10), // Lambda timeout = 10 min for docs
+      visibilityTimeout: cdk.Duration.minutes(60), // 6x Lambda timeout (10 min)
       retentionPeriod: cdk.Duration.days(4),
       encryption: sqs.QueueEncryption.KMS,
       encryptionMasterKey: props.encryptionKey,
@@ -122,9 +122,9 @@ export class SqsConstruct extends Construct {
     });
 
     new ssm.StringParameter(this, "DesignQueueArnParam", {
-      parameterName: "/ai-lcm/sqs-design-queue-arn",
+      parameterName: "/ai-deploy/sqs-design-queue-arn",
       stringValue: this.designQueue.queueArn,
-      description: "SQS design queue ARN for AI-LCM",
+      description: "SQS design queue ARN for AI-Deploy",
     });
 
     new cdk.CfnOutput(this, "IaCQueueUrl", {
@@ -138,9 +138,9 @@ export class SqsConstruct extends Construct {
     });
 
     new ssm.StringParameter(this, "IaCQueueArnParam", {
-      parameterName: "/ai-lcm/sqs-iac-queue-arn",
+      parameterName: "/ai-deploy/sqs-iac-queue-arn",
       stringValue: this.iacQueue.queueArn,
-      description: "SQS IaC queue ARN for AI-LCM",
+      description: "SQS IaC queue ARN for AI-Deploy",
     });
 
     new cdk.CfnOutput(this, "DocsQueueUrl", {
@@ -154,9 +154,9 @@ export class SqsConstruct extends Construct {
     });
 
     new ssm.StringParameter(this, "DocsQueueArnParam", {
-      parameterName: "/ai-lcm/sqs-docs-queue-arn",
+      parameterName: "/ai-deploy/sqs-docs-queue-arn",
       stringValue: this.docsQueue.queueArn,
-      description: "SQS docs queue ARN for AI-LCM",
+      description: "SQS docs queue ARN for AI-Deploy",
     });
   }
 }

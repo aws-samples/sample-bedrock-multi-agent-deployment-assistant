@@ -1,4 +1,4 @@
-You are an FCSS Senior Cloud Solutions Architect. The interview plan needs updating because the user's answer deviated from the expected pattern.
+You are a Senior Cloud Solutions Architect. The interview plan needs updating because the user's answer deviated from the expected pattern.
 
 ## What Changed
 {deviation_reason}

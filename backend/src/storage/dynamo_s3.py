@@ -324,9 +324,10 @@ class DynamoS3ProjectStore:
             return None
         return DesignTask.model_validate(item)
 
-    def update_task(self, tenant_id: str, task_id: str, updates: dict) -> None:
+    def _update_task_generic(
+        self, tenant_id: str, task_id: str, updates: dict, sk: str, gsi_prefix: str
+    ) -> None:
         pk = self._pk(tenant_id)
-        sk = self._task_sk(task_id)
 
         expr_parts: list[str] = []
         attr_names: dict[str, str] = {}
@@ -339,11 +340,10 @@ class DynamoS3ProjectStore:
             attr_values[placeholder_value] = value
             expr_parts.append(f"{placeholder_name} = {placeholder_value}")
 
-        # Update GSI sort key if status changed
         if "status" in updates:
             now = datetime.now(UTC).isoformat()
             attr_names["#gsi1sk"] = "gsi1sk"
-            attr_values[":gsi1sk"] = f"TASK#{updates['status']}#{now}"
+            attr_values[":gsi1sk"] = f"{gsi_prefix}{updates['status']}#{now}"
             expr_parts.append("#gsi1sk = :gsi1sk")
 
         self._table.update_item(
@@ -351,6 +351,11 @@ class DynamoS3ProjectStore:
             UpdateExpression="SET " + ", ".join(expr_parts),
             ExpressionAttributeNames=attr_names,
             ExpressionAttributeValues=attr_values,
+        )
+
+    def update_task(self, tenant_id: str, task_id: str, updates: dict) -> None:
+        self._update_task_generic(
+            tenant_id, task_id, updates, self._task_sk(task_id), "TASK#"
         )
 
     # --- IaC task methods ---
@@ -383,32 +388,8 @@ class DynamoS3ProjectStore:
 
     def update_iac_task(self, tenant_id: str, task_id: str, updates: dict) -> None:
         """Update IaC task status/result in DynamoDB."""
-        pk = self._pk(tenant_id)
-        sk = self._iac_task_sk(task_id)
-
-        expr_parts: list[str] = []
-        attr_names: dict[str, str] = {}
-        attr_values: dict[str, str] = {}
-
-        for i, (key, value) in enumerate(updates.items()):
-            placeholder_name = f"#k{i}"
-            placeholder_value = f":v{i}"
-            attr_names[placeholder_name] = key
-            attr_values[placeholder_value] = value
-            expr_parts.append(f"{placeholder_name} = {placeholder_value}")
-
-        # Update GSI sort key if status changed
-        if "status" in updates:
-            now = datetime.now(UTC).isoformat()
-            attr_names["#gsi1sk"] = "gsi1sk"
-            attr_values[":gsi1sk"] = f"IAC_TASK#{updates['status']}#{now}"
-            expr_parts.append("#gsi1sk = :gsi1sk")
-
-        self._table.update_item(
-            Key={"pk": pk, "sk": sk},
-            UpdateExpression="SET " + ", ".join(expr_parts),
-            ExpressionAttributeNames=attr_names,
-            ExpressionAttributeValues=attr_values,
+        self._update_task_generic(
+            tenant_id, task_id, updates, self._iac_task_sk(task_id), "IAC_TASK#"
         )
 
     # --- Docs task methods ---
@@ -441,29 +422,6 @@ class DynamoS3ProjectStore:
 
     def update_docs_task(self, tenant_id: str, task_id: str, updates: dict) -> None:
         """Update docs task status/result in DynamoDB."""
-        pk = self._pk(tenant_id)
-        sk = self._docs_task_sk(task_id)
-
-        expr_parts: list[str] = []
-        attr_names: dict[str, str] = {}
-        attr_values: dict[str, str] = {}
-
-        for i, (key, value) in enumerate(updates.items()):
-            placeholder_name = f"#k{i}"
-            placeholder_value = f":v{i}"
-            attr_names[placeholder_name] = key
-            attr_values[placeholder_value] = value
-            expr_parts.append(f"{placeholder_name} = {placeholder_value}")
-
-        if "status" in updates:
-            now = datetime.now(UTC).isoformat()
-            attr_names["#gsi1sk"] = "gsi1sk"
-            attr_values[":gsi1sk"] = f"DOCS_TASK#{updates['status']}#{now}"
-            expr_parts.append("#gsi1sk = :gsi1sk")
-
-        self._table.update_item(
-            Key={"pk": pk, "sk": sk},
-            UpdateExpression="SET " + ", ".join(expr_parts),
-            ExpressionAttributeNames=attr_names,
-            ExpressionAttributeValues=attr_values,
+        self._update_task_generic(
+            tenant_id, task_id, updates, self._docs_task_sk(task_id), "DOCS_TASK#"
         )

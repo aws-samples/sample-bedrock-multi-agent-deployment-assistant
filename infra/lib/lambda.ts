@@ -1,6 +1,7 @@
 import * as path from "path";
 import * as cdk from "aws-cdk-lib";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
+import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as ecr_assets from "aws-cdk-lib/aws-ecr-assets";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as kms from "aws-cdk-lib/aws-kms";
@@ -20,6 +21,8 @@ export interface LambdaConstructProps {
   artifactsBucket: s3.Bucket;
   knowledgeBaseBucket: s3.Bucket;
   encryptionKey: kms.IKey;
+  /** VPC for worker Lambdas (enables use of VPC endpoints for Bedrock). */
+  vpc?: ec2.IVpc;
 }
 
 export class LambdaConstruct extends Construct {
@@ -29,18 +32,34 @@ export class LambdaConstruct extends Construct {
   public readonly wsConnect: lambda.Function;
   public readonly wsDisconnect: lambda.Function;
   public readonly wsSubscribe: lambda.Function;
+  public readonly wsAuthorizer: lambda.Function;
   public readonly notificationBridge: lambda.Function;
   public readonly wsHeartbeat: lambda.Function;
 
   constructor(scope: Construct, id: string, props: LambdaConstructProps) {
     super(scope, id);
 
+    // VPC configuration for worker Lambdas (enables private Bedrock endpoints)
+    const workerVpcConfig = props.vpc
+      ? {
+          vpc: props.vpc,
+          vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+          securityGroups: [
+            new ec2.SecurityGroup(this, "WorkerSg", {
+              vpc: props.vpc,
+              description: "Security group for AI-Deploy worker Lambdas",
+              allowAllOutbound: true,
+            }),
+          ],
+        }
+      : {};
+
     // ---------------------------------------------------------------------------
     // Design Worker Lambda — processes design tasks from SQS FIFO queue
     // ---------------------------------------------------------------------------
 
     const designWorkerLogGroup = new logs.LogGroup(this, "DesignWorkerLogGroup", {
-      logGroupName: "/ai-lcm/lambda/design-worker",
+      logGroupName: "/ai-deploy/lambda/design-worker",
       retention: logs.RetentionDays.SIX_MONTHS,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       encryptionKey: props.encryptionKey,
@@ -52,25 +71,27 @@ export class LambdaConstruct extends Construct {
     });
 
     this.designWorker = new lambda.DockerImageFunction(this, "DesignWorker", {
-      functionName: "ai-lcm-design-worker",
+      functionName: "ai-deploy-design-worker",
       code: lambda.DockerImageCode.fromEcr(designWorkerImage.repository, {
         tagOrDigest: designWorkerImage.imageTag,
       }),
       memorySize: 2048,
       timeout: cdk.Duration.minutes(5),
       environment: {
-        AI_LCM_DYNAMODB_TABLE: props.table.tableName,
-        AI_LCM_S3_ARTIFACTS_BUCKET: props.artifactsBucket.bucketName,
-        AI_LCM_S3_KNOWLEDGE_BASE_BUCKET: props.knowledgeBaseBucket.bucketName,
-        AI_LCM_STORAGE_BACKEND: "aws",
+        AI_DEPLOY_DYNAMODB_TABLE: props.table.tableName,
+        AI_DEPLOY_S3_ARTIFACTS_BUCKET: props.artifactsBucket.bucketName,
+        AI_DEPLOY_S3_KNOWLEDGE_BASE_BUCKET: props.knowledgeBaseBucket.bucketName,
+        AI_DEPLOY_STORAGE_BACKEND: "aws",
       },
       logGroup: designWorkerLogGroup,
+      ...workerVpcConfig,
     });
 
     // SQS event source — process one message at a time for design tasks
     this.designWorker.addEventSource(
       new lambdaEventSources.SqsEventSource(props.designQueue, {
         batchSize: 1,
+        maxConcurrency: 5,
       }),
     );
 
@@ -88,14 +109,28 @@ export class LambdaConstruct extends Construct {
       }),
     );
 
-    // CloudWatch custom metrics (AI-LCM namespace)
+    // Bedrock Knowledge Base retrieval
+    this.designWorker.addToRolePolicy(
+      new iam.PolicyStatement({
+        sid: "BedrockKBRetrieve",
+        actions: [
+          "bedrock-agent-runtime:Retrieve",
+          "bedrock-agent-runtime:RetrieveAndGenerate",
+        ],
+        resources: [
+          `arn:aws:bedrock:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:knowledge-base/*`,
+        ],
+      }),
+    );
+
+    // CloudWatch custom metrics (AI-Deploy namespace)
     this.designWorker.addToRolePolicy(
       new iam.PolicyStatement({
         sid: "CloudWatchPutMetrics",
         actions: ["cloudwatch:PutMetricData"],
         resources: ["*"],
         conditions: {
-          StringEquals: { "cloudwatch:namespace": "AI-LCM" },
+          StringEquals: { "cloudwatch:namespace": "AI-Deploy" },
         },
       }),
     );
@@ -150,7 +185,7 @@ export class LambdaConstruct extends Construct {
     // ---------------------------------------------------------------------------
 
     const iacWorkerLogGroup = new logs.LogGroup(this, "IaCWorkerLogGroup", {
-      logGroupName: "/ai-lcm/lambda/iac-worker",
+      logGroupName: "/ai-deploy/lambda/iac-worker",
       retention: logs.RetentionDays.SIX_MONTHS,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       encryptionKey: props.encryptionKey,
@@ -162,26 +197,29 @@ export class LambdaConstruct extends Construct {
     });
 
     this.iacWorker = new lambda.DockerImageFunction(this, "IaCWorker", {
-      functionName: "ai-lcm-iac-worker",
+      functionName: "ai-deploy-iac-worker",
       code: lambda.DockerImageCode.fromEcr(iacWorkerImage.repository, {
         tagOrDigest: iacWorkerImage.imageTag,
+        cmd: ["src.workers.iac_worker.handler"],
       }),
       memorySize: 2048,
       timeout: cdk.Duration.minutes(15),
       environment: {
-        AI_LCM_DYNAMODB_TABLE: props.table.tableName,
-        AI_LCM_S3_ARTIFACTS_BUCKET: props.artifactsBucket.bucketName,
-        AI_LCM_S3_KNOWLEDGE_BASE_BUCKET: props.knowledgeBaseBucket.bucketName,
-        AI_LCM_STORAGE_BACKEND: "aws",
-        AI_LCM_CFN_GUARD_BINARY: "/usr/local/bin/cfn-guard",
+        AI_DEPLOY_DYNAMODB_TABLE: props.table.tableName,
+        AI_DEPLOY_S3_ARTIFACTS_BUCKET: props.artifactsBucket.bucketName,
+        AI_DEPLOY_S3_KNOWLEDGE_BASE_BUCKET: props.knowledgeBaseBucket.bucketName,
+        AI_DEPLOY_STORAGE_BACKEND: "aws",
+        AI_DEPLOY_CFN_GUARD_BINARY: "/usr/local/bin/cfn-guard",
       },
       logGroup: iacWorkerLogGroup,
+      ...workerVpcConfig,
     });
 
     // SQS event source — process one message at a time for IaC tasks
     this.iacWorker.addEventSource(
       new lambdaEventSources.SqsEventSource(props.iacQueue, {
         batchSize: 1,
+        maxConcurrency: 5,
       }),
     );
 
@@ -199,14 +237,28 @@ export class LambdaConstruct extends Construct {
       }),
     );
 
-    // CloudWatch custom metrics (AI-LCM namespace)
+    // Bedrock Knowledge Base retrieval
+    this.iacWorker.addToRolePolicy(
+      new iam.PolicyStatement({
+        sid: "BedrockKBRetrieve",
+        actions: [
+          "bedrock-agent-runtime:Retrieve",
+          "bedrock-agent-runtime:RetrieveAndGenerate",
+        ],
+        resources: [
+          `arn:aws:bedrock:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:knowledge-base/*`,
+        ],
+      }),
+    );
+
+    // CloudWatch custom metrics (AI-Deploy namespace)
     this.iacWorker.addToRolePolicy(
       new iam.PolicyStatement({
         sid: "CloudWatchPutMetrics",
         actions: ["cloudwatch:PutMetricData"],
         resources: ["*"],
         conditions: {
-          StringEquals: { "cloudwatch:namespace": "AI-LCM" },
+          StringEquals: { "cloudwatch:namespace": "AI-Deploy" },
         },
       }),
     );
@@ -263,7 +315,7 @@ export class LambdaConstruct extends Construct {
     // ---------------------------------------------------------------------------
 
     const docsWorkerLogGroup = new logs.LogGroup(this, "DocsWorkerLogGroup", {
-      logGroupName: "/ai-lcm/lambda/docs-worker",
+      logGroupName: "/ai-deploy/lambda/docs-worker",
       retention: logs.RetentionDays.SIX_MONTHS,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       encryptionKey: props.encryptionKey,
@@ -275,7 +327,7 @@ export class LambdaConstruct extends Construct {
     });
 
     this.docsWorker = new lambda.DockerImageFunction(this, "DocsWorker", {
-      functionName: "ai-lcm-docs-worker",
+      functionName: "ai-deploy-docs-worker",
       code: lambda.DockerImageCode.fromEcr(docsWorkerImage.repository, {
         tagOrDigest: docsWorkerImage.imageTag,
         cmd: ["src.workers.docs_worker.handler"],
@@ -283,18 +335,20 @@ export class LambdaConstruct extends Construct {
       memorySize: 2048,
       timeout: cdk.Duration.minutes(10),
       environment: {
-        AI_LCM_DYNAMODB_TABLE: props.table.tableName,
-        AI_LCM_S3_ARTIFACTS_BUCKET: props.artifactsBucket.bucketName,
-        AI_LCM_S3_KNOWLEDGE_BASE_BUCKET: props.knowledgeBaseBucket.bucketName,
-        AI_LCM_STORAGE_BACKEND: "aws",
+        AI_DEPLOY_DYNAMODB_TABLE: props.table.tableName,
+        AI_DEPLOY_S3_ARTIFACTS_BUCKET: props.artifactsBucket.bucketName,
+        AI_DEPLOY_S3_KNOWLEDGE_BASE_BUCKET: props.knowledgeBaseBucket.bucketName,
+        AI_DEPLOY_STORAGE_BACKEND: "aws",
       },
       logGroup: docsWorkerLogGroup,
+      ...workerVpcConfig,
     });
 
     // SQS event source — process one message at a time for docs tasks
     this.docsWorker.addEventSource(
       new lambdaEventSources.SqsEventSource(props.docsQueue, {
         batchSize: 1,
+        maxConcurrency: 5,
       }),
     );
 
@@ -312,14 +366,28 @@ export class LambdaConstruct extends Construct {
       }),
     );
 
-    // CloudWatch custom metrics (AI-LCM namespace)
+    // Bedrock Knowledge Base retrieval
+    this.docsWorker.addToRolePolicy(
+      new iam.PolicyStatement({
+        sid: "BedrockKBRetrieve",
+        actions: [
+          "bedrock-agent-runtime:Retrieve",
+          "bedrock-agent-runtime:RetrieveAndGenerate",
+        ],
+        resources: [
+          `arn:aws:bedrock:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:knowledge-base/*`,
+        ],
+      }),
+    );
+
+    // CloudWatch custom metrics (AI-Deploy namespace)
     this.docsWorker.addToRolePolicy(
       new iam.PolicyStatement({
         sid: "CloudWatchPutMetrics",
         actions: ["cloudwatch:PutMetricData"],
         resources: ["*"],
         conditions: {
-          StringEquals: { "cloudwatch:namespace": "AI-LCM" },
+          StringEquals: { "cloudwatch:namespace": "AI-Deploy" },
         },
       }),
     );
@@ -385,14 +453,14 @@ export class LambdaConstruct extends Construct {
     };
 
     const wsConnectLogGroup = new logs.LogGroup(this, "WsConnectLogGroup", {
-      logGroupName: "/ai-lcm/lambda/ws-connect",
+      logGroupName: "/ai-deploy/lambda/ws-connect",
       retention: logs.RetentionDays.SIX_MONTHS,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       encryptionKey: props.encryptionKey,
     });
 
     this.wsConnect = new lambda.Function(this, "WsConnect", {
-      functionName: "ai-lcm-ws-connect",
+      functionName: "ai-deploy-ws-connect",
       ...wsLambdaDefaults,
       handler: "ws_connect.handler",
       code: lambda.Code.fromAsset(wsHandlersPath),
@@ -400,14 +468,14 @@ export class LambdaConstruct extends Construct {
     });
 
     const wsDisconnectLogGroup = new logs.LogGroup(this, "WsDisconnectLogGroup", {
-      logGroupName: "/ai-lcm/lambda/ws-disconnect",
+      logGroupName: "/ai-deploy/lambda/ws-disconnect",
       retention: logs.RetentionDays.SIX_MONTHS,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       encryptionKey: props.encryptionKey,
     });
 
     this.wsDisconnect = new lambda.Function(this, "WsDisconnect", {
-      functionName: "ai-lcm-ws-disconnect",
+      functionName: "ai-deploy-ws-disconnect",
       ...wsLambdaDefaults,
       handler: "ws_disconnect.handler",
       code: lambda.Code.fromAsset(wsHandlersPath),
@@ -415,18 +483,37 @@ export class LambdaConstruct extends Construct {
     });
 
     const wsSubscribeLogGroup = new logs.LogGroup(this, "WsSubscribeLogGroup", {
-      logGroupName: "/ai-lcm/lambda/ws-subscribe",
+      logGroupName: "/ai-deploy/lambda/ws-subscribe",
       retention: logs.RetentionDays.SIX_MONTHS,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       encryptionKey: props.encryptionKey,
     });
 
     this.wsSubscribe = new lambda.Function(this, "WsSubscribe", {
-      functionName: "ai-lcm-ws-subscribe",
+      functionName: "ai-deploy-ws-subscribe",
       ...wsLambdaDefaults,
       handler: "ws_subscribe.handler",
       code: lambda.Code.fromAsset(wsHandlersPath),
       logGroup: wsSubscribeLogGroup,
+    });
+
+    // ---------------------------------------------------------------------------
+    // WebSocket Authorizer Lambda — validates JWT on $connect
+    // ---------------------------------------------------------------------------
+
+    const wsAuthorizerLogGroup = new logs.LogGroup(this, "WsAuthorizerLogGroup", {
+      logGroupName: "/ai-deploy/lambda/ws-authorizer",
+      retention: logs.RetentionDays.SIX_MONTHS,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      encryptionKey: props.encryptionKey,
+    });
+
+    this.wsAuthorizer = new lambda.Function(this, "WsAuthorizer", {
+      functionName: "ai-deploy-ws-authorizer",
+      ...wsLambdaDefaults,
+      handler: "ws_authorizer.handler",
+      code: lambda.Code.fromAsset(wsHandlersPath),
+      logGroup: wsAuthorizerLogGroup,
     });
 
     // Grant DynamoDB read/write to all WebSocket handlers
@@ -439,14 +526,14 @@ export class LambdaConstruct extends Construct {
     // ---------------------------------------------------------------------------
 
     const notificationBridgeLogGroup = new logs.LogGroup(this, "NotificationBridgeLogGroup", {
-      logGroupName: "/ai-lcm/lambda/ws-notification-bridge",
+      logGroupName: "/ai-deploy/lambda/ws-notification-bridge",
       retention: logs.RetentionDays.SIX_MONTHS,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       encryptionKey: props.encryptionKey,
     });
 
     this.notificationBridge = new lambda.Function(this, "NotificationBridge", {
-      functionName: "ai-lcm-ws-notification-bridge",
+      functionName: "ai-deploy-ws-notification-bridge",
       runtime: lambda.Runtime.PYTHON_3_12,
       memorySize: 512,
       timeout: cdk.Duration.seconds(30),
@@ -465,14 +552,14 @@ export class LambdaConstruct extends Construct {
     // ---------------------------------------------------------------------------
 
     const heartbeatLogGroup = new logs.LogGroup(this, "HeartbeatLogGroup", {
-      logGroupName: "/ai-lcm/lambda/ws-heartbeat",
+      logGroupName: "/ai-deploy/lambda/ws-heartbeat",
       retention: logs.RetentionDays.SIX_MONTHS,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       encryptionKey: props.encryptionKey,
     });
 
     this.wsHeartbeat = new lambda.Function(this, "WsHeartbeat", {
-      functionName: "ai-lcm-ws-heartbeat",
+      functionName: "ai-deploy-ws-heartbeat",
       runtime: lambda.Runtime.PYTHON_3_12,
       memorySize: 256,
       timeout: cdk.Duration.minutes(2),
@@ -493,7 +580,7 @@ export class LambdaConstruct extends Construct {
         actions: ["cloudwatch:PutMetricData"],
         resources: ["*"],
         conditions: {
-          StringEquals: { "cloudwatch:namespace": "AI-LCM" },
+          StringEquals: { "cloudwatch:namespace": "AI-Deploy" },
         },
       }),
     );
@@ -503,6 +590,7 @@ export class LambdaConstruct extends Construct {
       this.wsConnect,
       this.wsDisconnect,
       this.wsSubscribe,
+      this.wsAuthorizer,
       this.notificationBridge,
       this.wsHeartbeat,
     ];
@@ -512,7 +600,7 @@ export class LambdaConstruct extends Construct {
         {
           id: "AwsSolutions-IAM5",
           reason:
-            "DynamoDB wildcards are scoped to the specific AI-LCM table and its indexes. " +
+            "DynamoDB wildcards are scoped to the specific AI-Deploy table and its indexes. " +
             "These are auto-generated by CDK grantReadWriteData(). " +
             "KMS wildcards (GenerateDataKey*, ReEncrypt*) are auto-generated by CDK for KMS-encrypted table access. " +
             "CloudWatch PutMetricData requires Resource::* but is scoped by namespace condition. " +

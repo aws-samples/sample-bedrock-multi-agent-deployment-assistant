@@ -1,7 +1,7 @@
 """Unit tests for the Parameter Mapper — maps ResolvedIaCParameters to CFN defaults."""
 
 from src.models.design import (
-    ResolvedFortiGate,
+    ResolvedAppliance,
     ResolvedIaCParameters,
     ResolvedInterface,
     ResolvedVPC,
@@ -19,8 +19,8 @@ def _make_params(**overrides) -> ResolvedIaCParameters:
         availability_zones=["us-east-1a", "us-east-1b"],
         vpcs=[
             ResolvedVPC(
-                name="inspection-vpc",
-                role="inspection",
+                name="inference-vpc",
+                role="inference",
                 cidr="10.0.0.0/16",
                 subnets=[
                     SubnetSpec(name="public-1", role="public", cidr="10.0.1.0/24", availability_zone="us-east-1a"),
@@ -28,8 +28,8 @@ def _make_params(**overrides) -> ResolvedIaCParameters:
                 ],
             ),
         ],
-        fortigate_instances=[
-            ResolvedFortiGate(
+        appliance_instances=[
+            ResolvedAppliance(
                 name="fgt-active",
                 role="active",
                 instance_type="c5.xlarge",

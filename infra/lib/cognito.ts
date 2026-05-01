@@ -9,8 +9,8 @@ export class CognitoConstruct extends Construct {
   constructor(scope: Construct, id: string) {
     super(scope, id);
 
-    this.userPool = new cognito.UserPool(this, "AiLcmUserPool", {
-      userPoolName: "ai-lcm-user-pool",
+    this.userPool = new cognito.UserPool(this, "AiDeployUserPool", {
+      userPoolName: "ai-deploy-user-pool",
       selfSignUpEnabled: false,
       signInAliases: { email: true },
       autoVerify: { email: true },
@@ -33,8 +33,8 @@ export class CognitoConstruct extends Construct {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
-    this.userPoolClient = this.userPool.addClient("AiLcmWebClient", {
-      userPoolClientName: "ai-lcm-web-client",
+    this.userPoolClient = this.userPool.addClient("AiDeployWebClient", {
+      userPoolClientName: "ai-deploy-web-client",
       authFlows: {
         userSrp: true,
         userPassword: false,

@@ -16,7 +16,7 @@ def _sample_plan() -> QuestionPlan:
         entries=[
             PlannedQuestion(field_path="role", question_template="What role?"),
         ],
-        populated_fields={"bandwidth": 1000},
+        populated_fields={"gpu_budget": "moderate"},
         kb_summary="Test",
     )
 
@@ -143,7 +143,7 @@ class TestPlanCacheLocalPersistence:
 
         assert loaded is not None
         assert loaded.entries[0].field_path == "role"
-        assert loaded.populated_fields["bandwidth"] == 1000
+        assert loaded.populated_fields["gpu_budget"] == "moderate"
 
     def test_load_local_missing_returns_none(self, tmp_path):
         cache = PlanCache()

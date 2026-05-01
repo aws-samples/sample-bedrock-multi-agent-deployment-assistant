@@ -47,8 +47,25 @@ _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 _MAX_FIX_ATTEMPTS = 3
 
 
+class _PartialFormatMap(dict):
+    """Dict that returns '{key}' for missing keys — enables partial .format_map()."""
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
+
+
 def _load_prompt(name: str) -> str:
-    return (_PROMPTS_DIR / name).read_text()
+    """Load a prompt template and inject catalog context variables.
+
+    Uses partial formatting so runtime variables (like {layer_name})
+    are preserved for later .format() calls.
+    """
+    from src.services.catalog_loader import get_catalog
+    template = (_PROMPTS_DIR / name).read_text()
+    try:
+        catalog = get_catalog()
+        return template.format_map(_PartialFormatMap(catalog.get_prompt_context()))
+    except Exception:
+        return template
 
 
 # ---------------------------------------------------------------------------
@@ -270,7 +287,7 @@ def _get_kb_context(use_case: str) -> tuple[str, str]:
     kb_results = []
     for doc_type in ["architecture", "components", "configuration"]:
         results = kb_search_filtered(
-            query=f"{use_case} {doc_type} CloudFormation FortiGate",
+            query=f"{use_case} {doc_type} CloudFormation deployment AWS",
             use_case=use_case,
             document_type=doc_type,
             max_results=3,
@@ -279,7 +296,7 @@ def _get_kb_context(use_case: str) -> tuple[str, str]:
 
     kb_context = "\n\n---\n\n".join(
         f"[{r.document_type or 'doc'} | {r.source_uri}]\n{r.text}" for r in kb_results
-    ) if kb_results else "No KB documentation available. Use best practices for FortiGate on AWS."
+    ) if kb_results else "No KB documentation available. Use best practices for the product on AWS."
 
     reference_template = "No reference template available."
     ref_results = kb_search_filtered(
@@ -383,7 +400,7 @@ def _generate_layer_resources(
 
     # Build imports JSON for the prompt
     imports_json = "No imports — this is a root layer." if not layer_spec.imports else "\n".join(
-        f"- {imp.parameter_name}: {imp.name} from {imp.source_layer.value} layer"
+        f"- {imp.parameter_name}: {imp.name} from {imp.source_layer} layer"
         + (f" ({imp.description})" if imp.description else "")
         for imp in layer_spec.imports
     )
@@ -397,7 +414,7 @@ def _generate_layer_resources(
     )
 
     user_prompt = system_prompt.replace(
-        "{layer_name}", layer_spec.name.value
+        "{layer_name}", layer_spec.name
     ).replace(
         "{layer_description}", layer_spec.description
     ).replace(
@@ -420,7 +437,7 @@ def _generate_layer_resources(
     agent = Agent(
         name="iac-layer-generate",
         model=model,
-        system_prompt=f"You produce a JSON resource plan for the {layer_spec.name.value} layer.",
+        system_prompt=f"You produce a JSON resource plan for the {layer_spec.name} layer.",
         structured_output_model=ResourcePlan,
         callback_handler=logging_callback_handler,
     )
@@ -429,7 +446,7 @@ def _generate_layer_resources(
     plan = getattr(result, "structured_output", None)
     if not isinstance(plan, ResourcePlan):
         raise ValueError(
-            f"LLM did not produce a valid ResourcePlan for layer {layer_spec.name.value}. "
+            f"LLM did not produce a valid ResourcePlan for layer {layer_spec.name}. "
             f"Got: {type(plan).__name__ if plan else 'None'}"
         )
     return plan
@@ -455,7 +472,7 @@ async def _generate_all_layers(
         logger.info(
             "Generating layer group %d/%d: %s",
             group_idx + 1, len(groups),
-            [s.name.value for s in group],
+            [s.name for s in group],
         )
 
         async def _gen_one(spec: LayerSpec) -> tuple[LayerName, ResourcePlan]:
@@ -523,7 +540,7 @@ def _fix_layer_resource_plan(
     export_resource_ids = ", ".join(exp.resource_logical_id for exp in layer_spec.exports) or "None"
 
     user_prompt = system_prompt.replace(
-        "{layer_name}", layer_spec.name.value
+        "{layer_name}", layer_spec.name
     ).replace(
         "{import_param_names}", import_param_names
     ).replace(
@@ -538,7 +555,7 @@ def _fix_layer_resource_plan(
     agent = Agent(
         name="iac-layer-fix",
         model=model,
-        system_prompt=f"You fix a JSON resource plan for the {layer_spec.name.value} layer.",
+        system_prompt=f"You fix a JSON resource plan for the {layer_spec.name} layer.",
         structured_output_model=ResourcePlan,
         callback_handler=logging_callback_handler,
     )
@@ -547,7 +564,7 @@ def _fix_layer_resource_plan(
     fixed = getattr(result, "structured_output", None)
     if not isinstance(fixed, ResourcePlan):
         raise ValueError(
-            f"LLM did not produce a valid fixed ResourcePlan for layer {layer_spec.name.value}. "
+            f"LLM did not produce a valid fixed ResourcePlan for layer {layer_spec.name}. "
             f"Got: {type(fixed).__name__ if fixed else 'None'}"
         )
     return fixed
@@ -562,8 +579,8 @@ _ERROR_PRIORITY_HEADER = """\
 ## Error Priority (fix in this order):
 1. structural errors (YAML syntax, required keys) — MUST fix
 2. cfn-lint errors (property names, types, required fields) — MUST fix
-3. cfn-guard errors (FortiGate best practices) — fix if possible
-4. checkov warnings (security findings) — fix unless FortiGate-intentional
+3. cfn-guard errors (product best practices) — fix if possible
+4. checkov warnings (security findings) — fix unless intentionally skipped per config
 
 """
 
@@ -743,7 +760,7 @@ async def generate_iac(
                     if spec_errors:
                         logger.info(
                             "Spec validation found %d errors in layer %s, fixing",
-                            len(spec_errors), layer_name.value,
+                            len(spec_errors), layer_name,
                         )
                         error_text = _format_errors(spec_errors)
                         layer_spec = layer_plan.get_layer(layer_name)

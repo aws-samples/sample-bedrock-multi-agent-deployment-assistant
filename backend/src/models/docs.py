@@ -8,20 +8,18 @@ from pydantic import BaseModel, Field
 class DocumentationOutput(BaseModel):
     """Final output of the documentation agent.
 
-    Three deliverables:
-    - user_guide: Comprehensive deployment guide (Markdown)
-    - threat_model: STRIDE threat analysis (Markdown)
+    Two deliverables:
     - architecture_diagram: Mermaid architecture-beta diagram code
+    - user_guide: Comprehensive deployment/readme guide (Markdown)
     """
 
     user_guide: str = Field(default="", description="Complete user/deployment guide in Markdown")
-    threat_model: str = Field(default="", description="STRIDE threat model in Markdown")
     architecture_diagram: str = Field(default="", description="Mermaid architecture-beta diagram code")
     diagram_fix_attempts: int = Field(default=0, description="Number of diagram validation-fix iterations used")
     diagram_validation_passed: bool = Field(default=False, description="Whether the diagram passed Mermaid validation")
 
 
-VALID_DOC_SECTIONS: set[str] = {"user_guide", "threat_model", "architecture_diagram"}
+VALID_DOC_SECTIONS: set[str] = {"user_guide", "architecture_diagram"}
 
 
 class DocsTaskStatus(str, Enum):

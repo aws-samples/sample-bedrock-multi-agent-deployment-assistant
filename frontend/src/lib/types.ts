@@ -1,34 +1,20 @@
-export type UseCases = "sd-wan" | "egress" | "ingress" | "inspection" | "notknown";
-
-export type RoutingProtocol = "bgp" | "static-route" | "notknown";
-
-export type WorkloadResilience =
-  | "none"
-  | "ha-single-region-single-zone"
-  | "ha-single-region-dual-zone"
-  | "ha-dual-region-single-zone"
-  | "ha-dual-region-dual-zone"
-  | "notknown";
-
 export interface UserInformation {
   name: string;
   experience_on_cloud: string;
 }
 
 export interface InterviewOutput {
-  use_cases: UseCases[];
-  cloud_routing_protocol: RoutingProtocol;
-  resilience: WorkloadResilience;
-  bandwidth: number;
+  use_cases: string[];
+  resilience: string;
   user_info?: UserInformation;
   compliance: string[];
   solution_description: string;
   use_case_details?: Record<string, Record<string, unknown>>;
+  [key: string]: unknown;
 }
 
 export interface RequirementsSeed {
-  use_cases: UseCases[];
-  bandwidth: number;
+  use_cases: string[];
   solution_description: string;
 }
 
@@ -44,7 +30,7 @@ export interface InterfaceBlueprint {
   description: string;
 }
 
-export interface FortiGateBlueprint {
+export interface ApplianceBlueprint {
   role: string;
   vpc_role: string;
   interfaces: InterfaceBlueprint[];
@@ -68,10 +54,10 @@ export interface DesignOption {
   deployment_pattern: string;
   use_case: string;
   ha_mode: string;
-  fortigate_instance_type: string;
+  appliance_instance_type: string;
   aws_services: string[];
   vpc_topology: VPCBlueprint[];
-  fortigate_topology: FortiGateBlueprint[];
+  appliance_topology: ApplianceBlueprint[];
   has_code_template: boolean;
   template_s3_prefix: string | null;
   kb_references: KBReference[];
@@ -157,7 +143,6 @@ export interface IaCTaskResponse {
 
 export interface DocumentationOutput {
   user_guide: string;
-  threat_model: string;
   architecture_diagram: string;
   diagram_fix_attempts?: number;
   diagram_validation_passed?: boolean;

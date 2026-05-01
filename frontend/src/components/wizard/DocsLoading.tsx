@@ -9,8 +9,7 @@ import type { DocsTaskStatus, DocumentationOutput } from "@/lib/types";
  */
 const DOCS_STEPS = [
   { key: "architecture_diagram" as const, label: "Generating architecture diagram" },
-  { key: "user_guide" as const, label: "Writing user guide" },
-  { key: "threat_model" as const, label: "Analyzing threats (STRIDE)" },
+  { key: "user_guide" as const, label: "Writing deployment guide" },
 ];
 
 function StepIcon({ active, done }: { active: boolean; done: boolean }) {
@@ -89,7 +88,7 @@ export function DocsLoading({ taskStatus, taskId, docs }: DocsLoadingProps) {
                 Generating Documentation
               </h2>
               <p className="text-sm text-gray-500">
-                Creating user guide, threat model, and architecture diagram.
+                Creating architecture diagram and deployment guide.
               </p>
             </div>
           </div>

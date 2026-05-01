@@ -38,7 +38,21 @@ from src.tools.kb_search import KBResult, kb_search_filtered
 logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
-_refinement_prompt_template = (PROMPTS_DIR / "refinement.txt").read_text()
+_refinement_prompt_raw = (PROMPTS_DIR / "refinement.txt").read_text()
+
+
+class _PartialFormatMap(dict):
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
+
+
+def _get_refinement_prompt() -> str:
+    from src.services.catalog_loader import get_catalog
+    try:
+        catalog = get_catalog()
+        return _refinement_prompt_raw.format_map(_PartialFormatMap(catalog.get_prompt_context()))
+    except Exception:
+        return _refinement_prompt_raw
 
 
 # ---------------------------------------------------------------------------
@@ -257,17 +271,17 @@ def _build_refinement_prompt(
         f"Deployment Pattern: {design.deployment_pattern}\n"
         f"Use Case: {design.use_case}\n"
         f"HA Mode: {design.ha_mode}\n"
-        f"Instance Type: {design.fortigate_instance_type}\n"
+        f"Instance Type: {design.appliance_instance_type}\n"
         f"AWS Services: {', '.join(design.aws_services)}\n"
         f"Architecture: {design.architecture_summary}\n"
         f"Has Code Template: {design.has_code_template}"
     )
 
     requirements_summary = (
-        f"Use Cases: {', '.join(uc.value for uc in requirements.use_cases)}\n"
-        f"Routing Protocol: {requirements.cloud_routing_protocol.value}\n"
-        f"Resilience: {requirements.resilience.value}\n"
-        f"Bandwidth: {requirements.bandwidth} Mbps\n"
+        f"Use Cases: {', '.join(requirements.use_cases)}\n"
+        f"GPU Budget: {requirements.gpu_budget}\n"
+        f"Availability: {requirements.availability_requirement}\n"
+        f"Data Sensitivity: {requirements.data_sensitivity}\n"
         f"Description: {requirements.solution_description}"
     )
 
@@ -331,7 +345,7 @@ def _generate_llm_refinement(
     agent = Agent(
         name="refinement-planner",
         model=_create_lightweight_model(),
-        system_prompt=_refinement_prompt_template,
+        system_prompt=_get_refinement_prompt(),
         tools=[],
         structured_output_model=RefinementPlan,
         callback_handler=logging_callback_handler,

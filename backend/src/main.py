@@ -1,4 +1,4 @@
-"""AI-LCM Backend — FastAPI application.
+"""AI-Deploy Backend — FastAPI application.
 
 Local dev:  uv run uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
 """
@@ -114,8 +114,8 @@ async def lifespan(application: FastAPI):
 
 
 app = FastAPI(
-    title="AI-LCM Backend",
-    description="AI-powered FortiGate deployment assistant",
+    title="AI Deploy Assistant",
+    description="AI-powered product deployment assistant",
     version="0.1.0",
     debug=settings.debug,
     lifespan=lifespan,
@@ -138,7 +138,7 @@ if not settings.debug:
         if _origin == "*":
             raise RuntimeError(
                 "Wildcard CORS origin ('*') is not allowed in production. "
-                "Set AI_LCM_DEBUG=true for local development or configure explicit origins."
+                "Set AI_DEPLOY_DEBUG=true for local development or configure explicit origins."
             )
         if not _origin.startswith(("http://", "https://")):
             raise RuntimeError(f"Invalid CORS origin (must start with http:// or https://): {_origin}")
@@ -605,7 +605,7 @@ async def get_docs_task(
 
 class DocsRegenerateSectionRequest(BaseModel):
     project_id: str = "default"
-    section: str = Field(description="Section to regenerate: user_guide, threat_model, or architecture_diagram")
+    section: str = Field(description="Section to regenerate: user_guide or architecture_diagram")
 
 
 @app.post("/api/docs/regenerate-section")

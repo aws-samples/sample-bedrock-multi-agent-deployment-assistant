@@ -1,4 +1,4 @@
-"""Layer 3: cfn-guard custom FortiGate rules — subprocess invocation."""
+"""Layer 3: cfn-guard custom rules — subprocess invocation."""
 
 import json
 import logging
@@ -11,9 +11,9 @@ from src.models.iac import ValidationFinding
 
 logger = logging.getLogger(__name__)
 
-# Path to custom FortiGate rules file
+# Path to custom rules file (product-specific, configured via config.yaml)
 _RULES_DIR = Path(__file__).parent
-_RULES_FILE = _RULES_DIR / "fortigate_rules.guard"
+_RULES_FILE = _RULES_DIR / "appliance_rules.guard"
 
 
 def validate_cfn_guard(
@@ -21,7 +21,7 @@ def validate_cfn_guard(
     guard_binary: str = "cfn-guard",
     rules_file: Path | None = None,
 ) -> list[ValidationFinding]:
-    """Run cfn-guard with custom FortiGate rules. Returns structured findings."""
+    """Run cfn-guard with custom rules. Returns structured findings."""
     findings: list[ValidationFinding] = []
 
     rules_path = rules_file or _RULES_FILE

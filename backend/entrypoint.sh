@@ -3,9 +3,9 @@
 set -e
 
 # Validate port is numeric
-PORT="${AI_LCM_PORT:-8000}"
+PORT="${AI_DEPLOY_PORT:-8000}"
 case "$PORT" in
-    ''|*[!0-9]*) echo "ERROR: AI_LCM_PORT must be numeric, got: $PORT" >&2; exit 1 ;;
+    ''|*[!0-9]*) echo "ERROR: AI_DEPLOY_PORT must be numeric, got: $PORT" >&2; exit 1 ;;
 esac
 
 exec uvicorn src.main:app \

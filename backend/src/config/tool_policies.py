@@ -25,7 +25,6 @@ TOOL_POLICIES: dict[str, set[str]] = {
     "docs-diagram": set(),
     "docs-diagram-fix": set(),
     "docs-user-guide": set(),
-    "docs-threat-model": set(),
     # IaC sub-agents (no tools — structured output only)
     "iac-compose": set(),
     "iac-layer-plan": set(),

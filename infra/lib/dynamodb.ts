@@ -15,8 +15,8 @@ export class DynamoDbConstruct extends Construct {
   constructor(scope: Construct, id: string, props: DynamoDbConstructProps) {
     super(scope, id);
 
-    this.table = new dynamodb.Table(this, "AiLcmTable", {
-      tableName: `ai-lcm-table-${props.environment}`,
+    this.table = new dynamodb.Table(this, "AiDeployTable", {
+      tableName: `ai-deploy-table-${props.environment}`,
       partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -55,9 +55,9 @@ export class DynamoDbConstruct extends Construct {
     });
 
     new ssm.StringParameter(this, "TableArnParam", {
-      parameterName: "/ai-lcm/dynamodb-table-arn",
+      parameterName: "/ai-deploy/dynamodb-table-arn",
       stringValue: this.table.tableArn,
-      description: "DynamoDB table ARN for AI-LCM",
+      description: "DynamoDB table ARN for AI-Deploy",
     });
   }
 }

@@ -187,12 +187,12 @@ def test_get_project_state_with_step_data(client, tmp_path):
     # Directly save step data through the store
     with patch("src.storage.local.DATA_DIR", tmp_path):
         store = get_store()
-        store.save_step("t1", project_id, "requirements", {"use_case": "sd-wan"})
+        store.save_step("t1", project_id, "requirements", {"use_case": "realtime-inference"})
 
     response = client.get(f"/api/projects/{project_id}/state?tenant_id=t1")
     assert response.status_code == 200
     data = response.json()
-    assert data["requirements"] == {"use_case": "sd-wan"}
+    assert data["requirements"] == {"use_case": "realtime-inference"}
     assert data["project"]["status"] == "design"  # status advanced
 
 
@@ -272,7 +272,7 @@ def test_full_project_lifecycle(client, tmp_path):
 
     with patch("src.storage.local.DATA_DIR", tmp_path):
         store = get_store()
-        store.save_step("t1", project_id, "requirements", {"use_case": "egress"})
+        store.save_step("t1", project_id, "requirements", {"use_case": "batch-inference"})
         store.save_step("t1", project_id, "design", {"options": [{"name": "A"}]})
         store.save_step(
             "t1",
@@ -287,7 +287,7 @@ def test_full_project_lifecycle(client, tmp_path):
     state = state_resp.json()
 
     assert state["project"]["status"] == "complete"
-    assert state["requirements"]["use_case"] == "egress"
+    assert state["requirements"]["use_case"] == "batch-inference"
     assert state["design"]["options"][0]["name"] == "A"
     assert "main.tf" in state["iac"]["files"]
     assert state["docs"]["guide"] == "# Implementation"

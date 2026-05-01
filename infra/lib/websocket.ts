@@ -1,6 +1,7 @@
 import * as cdk from "aws-cdk-lib";
 import * as apigatewayv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as apigatewayv2_integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
+import * as apigatewayv2_authorizers from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as kms from "aws-cdk-lib/aws-kms";
@@ -11,6 +12,8 @@ export interface WebSocketConstructProps {
   connectHandler: lambda.Function;
   disconnectHandler: lambda.Function;
   subscribeHandler: lambda.Function;
+  /** Optional Lambda authorizer for $connect route. */
+  authorizer?: lambda.Function;
   /** Optional KMS key for log group encryption. */
   encryptionKey?: kms.IKey;
 }
@@ -27,13 +30,22 @@ export class WebSocketConstruct extends Construct {
     // WebSocket API with route integrations
     // ---------------------------------------------------------------------------
 
+    const wsAuthorizer = props.authorizer
+      ? new apigatewayv2_authorizers.WebSocketLambdaAuthorizer(
+          "WsAuthorizer",
+          props.authorizer,
+          { identitySource: ["route.request.querystring.token"] },
+        )
+      : undefined;
+
     this.api = new apigatewayv2.WebSocketApi(this, "DesignWsApi", {
-      apiName: "ai-lcm-design-ws",
+      apiName: "ai-deploy-design-ws",
       connectRouteOptions: {
         integration: new apigatewayv2_integrations.WebSocketLambdaIntegration(
           "ConnectIntegration",
           props.connectHandler,
         ),
+        authorizer: wsAuthorizer,
       },
       disconnectRouteOptions: {
         integration: new apigatewayv2_integrations.WebSocketLambdaIntegration(
@@ -56,7 +68,7 @@ export class WebSocketConstruct extends Construct {
     // ---------------------------------------------------------------------------
 
     const accessLogGroup = new logs.LogGroup(this, "WsAccessLogGroup", {
-      logGroupName: "/ai-lcm/apigateway/ws-access-logs",
+      logGroupName: "/ai-deploy/apigateway/ws-access-logs",
       retention: logs.RetentionDays.SIX_MONTHS,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       encryptionKey: props.encryptionKey,

@@ -1,8 +1,10 @@
-# AI-LCM
+# AI Deploy Assistant
 
-AI-powered FortiGate Lifecycle Management platform. Uses a multi-agent pipeline (Strands + Amazon Bedrock) to guide users through deploying FortiGate-VM on AWS: gathering requirements, generating architecture designs, producing Infrastructure-as-Code, and creating documentation.
+A generalized, AI-powered product deployment assistant. Uses a multi-agent pipeline (Strands + Amazon Bedrock) to guide users through deploying any product catalog on AWS: gathering requirements via interview, generating architecture designs, producing Infrastructure-as-Code (CloudFormation), and creating documentation.
 
-![Architecture](arch.png)
+The system is **product-agnostic** — the product catalog, interview fields, deployment patterns, and validation rules are all driven by configuration files (`config.yaml` + `catalog.lock.yaml`), not hardcoded logic.
+
+![Architecture Diagram](./arch.png)
 
 ## Quick Start
 
@@ -13,7 +15,7 @@ cd frontend && pnpm install && cd ..
 
 # Configure environment
 cp backend/.env.sample backend/.env
-# Edit backend/.env — set AI_LCM_AWS_REGION to your Bedrock-enabled region
+# Edit backend/.env — set AI_DEPLOY_AWS_REGION to your Bedrock-enabled region
 
 # Start both services
 ./dev.sh
@@ -21,155 +23,117 @@ cp backend/.env.sample backend/.env
 
 Backend: http://localhost:8000/ping | Frontend: http://localhost:3000
 
-See [Local Development Guide](docs/local-development.md) for detailed setup instructions.
+See [Local Development Guide](docs/local-development.md) for detailed setup.
 
 ## Architecture
 
 ```
-Browser → CloudFront (static frontend)
+Browser → Next.js Frontend (wizard UI)
            ↓ API calls
-         ALB → ECS Fargate (FastAPI backend)
-                 ↓ enqueue
-               SQS FIFO queues (design / IaC / docs)
-                 ↓ consume
-               Lambda workers → Bedrock (LLM) → DynamoDB + S3
-                                                    ↓ stream
-                                                  EventBridge Pipe → Lambda → WebSocket API → Browser
+         FastAPI Backend (orchestrator)
+           ├── Interview Agent (Haiku) → gathers requirements from user
+           ├── Interview Planner (Sonnet) → plans questions from KB + catalog
+           ├── Design Agent (Sonnet) → generates 3 architecture options
+           ├── IaC Agent (Sonnet) → produces CloudFormation templates
+           └── Documentation Agent (Sonnet) → diagrams, user guide, threat model
+                    ↕
+              Knowledge Base (Bedrock KB or Local files)
+              + Catalog Lock File (deterministic field schema)
 ```
 
-### Agent Pipeline
+## Core Concepts
 
-Four sequential agents:
+### Two Config Files
 
-| Stage | Agent | Purpose |
-|-------|-------|---------|
-| 1 | **Interview** | Collects FortiGate deployment requirements via form + AI chat |
-| 2 | **Design** | Generates 2-3 architecture options with Well-Architected evaluation |
-| 3 | **IaC** | Produces modular CloudFormation templates with 3-layer validation |
-| 4 | **Documentation** | User guide, threat model, and architecture diagram |
+| File | Purpose | Maintained by |
+|------|---------|---------------|
+| `config.yaml` | Product identity + KB connection + policy overrides (~10 lines) | Developer (hand-edited) |
+| `catalog.lock.yaml` | Full product schema — use cases, fields, patterns, appliance config | Generated from KB, reviewed + committed |
 
-HITL design approval happens between stages 2 and 3 — the user selects an architecture option and provides deployment parameters before IaC generation begins.
+### 4-Stage Pipeline
 
-### Async Processing
+1. **Interview** — AI-guided requirements gathering (fields from catalog)
+2. **Design** — 3 architecture options grounded in KB documents
+3. **IaC** — CloudFormation generation (parameterize, compose, or generate)
+4. **Documentation** — Architecture diagram, user guide, threat model
 
-Long-running tasks (design, IaC, docs) are processed asynchronously:
+### Knowledge Base Provider
 
-- **Production**: SQS FIFO queues → Lambda workers (Docker images)
-- **Local dev**: In-process background worker (no SQS needed)
+The system supports three KB modes (auto-selected by config):
 
-Real-time status updates reach the browser via WebSocket (API Gateway in prod, local `/ws` in dev).
+| Mode | When | How |
+|------|------|-----|
+| **Bedrock** | `AI_DEPLOY_KNOWLEDGE_BASE_ID` is set | AWS Bedrock KB API with vector search |
+| **Local** | `knowledge_base.local_path` in config.yaml | TF-IDF search over local markdown files |
+| **Null** | Neither configured | Graceful no-op (LLM uses built-in knowledge) |
 
 ## Project Structure
 
 ```
-ai-lcm/
-├── backend/          # Python 3.12 / FastAPI / Strands Agents / Bedrock
-├── frontend/         # Next.js 16 / React 19 / Tailwind CSS 4 / TypeScript 5
-├── infra/            # AWS CDK v2 / TypeScript (12 custom constructs)
-├── docs/             # Development and deployment guides
-└── dev.sh            # Local development launcher
+├── config.yaml              # Product identity (hand-edited)
+├── catalog.lock.yaml        # Generated product schema (committed)
+├── knowledge-base/          # Local KB documents (dev fallback)
+│   ├── realtime-inference/  # use_case/deployment_type/doc_type.md
+│   ├── batch-inference/
+│   └── training/
+├── backend/
+│   └── src/
+│       ├── config/          # Settings, catalog schema, app config
+│       ├── agents/          # LLM agent implementations
+│       ├── models/          # Pydantic data models
+│       ├── services/        # Business logic (catalog loader, KB provider, etc.)
+│       ├── tools/           # Agent tools (KB search, validation)
+│       ├── prompts/         # Template prompt files ({product_name} variables)
+│       ├── validation/      # cfn-lint, cfn-guard, checkov pipeline
+│       └── routes/          # FastAPI endpoints
+├── frontend/                # Next.js wizard UI
+└── infra/                   # AWS CDK infrastructure
 ```
 
-Each folder has its own README with detailed architecture and API documentation:
+## Configuration Reference
 
-- [`backend/README.md`](backend/README.md) — Agent pipeline, API reference, environment variables, storage backends
-- [`frontend/README.md`](frontend/README.md) — Wizard flow, state management, component structure
-- [`infra/README.md`](infra/README.md) — CDK stack architecture, constructs, cost estimate, security
-
-## Prerequisites
-
-| Tool | Version | Purpose |
-|------|---------|---------|
-| Python | 3.12+ | Backend runtime |
-| [uv](https://docs.astral.sh/uv/) | latest | Python package manager |
-| Node.js | 22+ | Frontend runtime |
-| [pnpm](https://pnpm.io/) | 9+ | Frontend package manager |
-| AWS CLI | v2 | AWS credentials & Bedrock access |
-| AWS CDK CLI | latest | Infrastructure deployment (production only) |
+See [Configuration Guide](docs/configuration-guide.md) for full schema documentation.
 
 ## Environment Variables
 
-All backend variables use the `AI_LCM_` prefix. Configured in `backend/.env`.
+All env vars use the `AI_DEPLOY_` prefix. Key variables:
 
-### Core
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `AI_DEPLOY_AWS_REGION` | Yes | AWS region for Bedrock and services |
+| `AI_DEPLOY_KNOWLEDGE_BASE_ID` | No | Bedrock KB ID (omit for local KB) |
+| `AI_DEPLOY_STORAGE_BACKEND` | No | `local` (default) or `aws` |
+| `AI_DEPLOY_PRIMARY_MODEL_ID` | No | Bedrock model for design/planning |
+| `AI_DEPLOY_LIGHTWEIGHT_MODEL_ID` | No | Bedrock model for interview execution |
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AI_LCM_AWS_REGION` | `us-east-1` | AWS region for Bedrock calls |
-| `AI_LCM_PRIMARY_MODEL_ID` | Claude Sonnet 4.5 | Model for design, IaC, interview planner |
-| `AI_LCM_LIGHTWEIGHT_MODEL_ID` | Claude Haiku 4.5 | Model for interview executor, docs |
-| `AI_LCM_STORAGE_BACKEND` | `local` | `local` (JSON files) or `aws` (DynamoDB + S3) |
-| `AI_LCM_DEBUG` | `false` | Debug logging and relaxed CORS |
+See `backend/.env.sample` for the complete list.
 
-### Optional
-
-| Variable | Description |
-|----------|-------------|
-| `AI_LCM_KNOWLEDGE_BASE_ID` | Bedrock KB for FortiGate reference docs |
-| `AI_LCM_GUARDRAIL_ID` | Bedrock Guardrail ID |
-| `AI_LCM_COGNITO_USER_POOL_ID` | Enables JWT auth |
-| `AI_LCM_COGNITO_CLIENT_ID` | Cognito app client |
-| `AI_LCM_SQS_DESIGN_QUEUE_URL` | SQS queue (omit for local worker) |
-| `AI_LCM_SQS_IAC_QUEUE_URL` | SQS queue (omit for local worker) |
-| `AI_LCM_SQS_DOCS_QUEUE_URL` | SQS queue (omit for local worker) |
-
-See [`backend/.env.sample`](backend/.env.sample) for the full list including token limits and validation settings.
-
-## API Reference
-
-### Projects
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/projects` | Create project |
-| `GET` | `/api/projects` | List projects |
-| `GET` | `/api/projects/{id}` | Get project |
-| `GET` | `/api/projects/{id}/state` | Full wizard state (frontend hydration) |
-| `DELETE` | `/api/projects/{id}` | Delete project + all data |
-
-### Agent Endpoints
-
-| Method | Path | Description | Rate Limit |
-|--------|------|-------------|------------|
-| `POST` | `/api/interview/chat` | AI requirements refinement (SSE) | 10/min |
-| `POST` | `/api/design/submit` | Submit design generation task | 5/min |
-| `GET` | `/api/design/task/{task_id}` | Poll design task status | 30/min |
-| `POST` | `/api/design/select` | Select architecture option | 10/min |
-| `POST` | `/api/design/refine` | Submit deployment parameters | 10/min |
-| `POST` | `/api/iac/submit` | Submit IaC generation task | 10/min |
-| `GET` | `/api/iac/task/{task_id}` | Poll IaC task status | 30/min |
-| `POST` | `/api/docs/submit` | Submit documentation task | 5/min |
-| `GET` | `/api/docs/task/{task_id}` | Poll docs task status | 30/min |
-| `POST` | `/api/docs/regenerate-section` | Regenerate a single section | 5/min |
-| `GET` | `/api/export/{id}/iac.zip` | Download IaC as ZIP | 5/min |
-
-### Health
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/ping` | Basic health check |
-| `GET` | `/health` | Deep health check (storage + Bedrock) |
-
-All endpoints accept `tenant_id` as a query parameter (local dev) or JWT claim (production).
-
-## Multi-tenancy
-
-Projects are namespaced by `tenant_id` (defaults to `"default"`). All storage operations and S3 paths include `tenant_id`. When Cognito is configured, `tenant_id` is extracted from the JWT `custom:tenant_id` claim.
-
-## Testing
+## Development
 
 ```bash
-# Backend (594 tests)
-cd backend && uv run pytest tests/ -v && uv run ruff check src/ tests/
+# Run backend only
+cd backend && uv run uvicorn src.main:app --reload
 
-# Frontend
-cd frontend && pnpm lint
+# Run tests
+cd backend && uv run pytest tests/ -q
 
-# Infrastructure (24 CDK assertions)
-cd infra && npm run build && npm run test
+# Run frontend
+cd frontend && pnpm dev
 ```
+
+### Local Knowledge Base
+
+For development without AWS Bedrock access, place documents in `knowledge-base/`:
+
+```
+knowledge-base/
+  {use_case}/
+    {deployment_type}/
+      {document_type}.md    # architecture, sizing, configuration, etc.
+```
+
+The local KB provider indexes these files and performs TF-IDF text search with the same metadata filtering as Bedrock. Set `AI_DEPLOY_KNOWLEDGE_BASE_ID=""` to use local mode.
 
 ## Deployment
 
-- [Local Development](docs/local-development.md) — get running in 5 minutes
-- [AWS Deployment](docs/aws-deployment.md) — full 0-to-production guide with CDK
+See [AWS Deployment Guide](docs/aws-deployment.md) for CDK-based production deployment.

@@ -85,7 +85,7 @@ def _security_plan() -> ResourcePlan:
 
 
 def _compute_plan() -> ResourcePlan:
-    """Compute layer: FortiGate instance importing SubnetId and SGId."""
+    """Compute layer: Appliance instance importing SubnetId and SGId."""
     return ResourcePlan(
         description="Compute layer",
         parameters=[
@@ -95,7 +95,7 @@ def _compute_plan() -> ResourcePlan:
         ],
         resources=[
             CfnResource(
-                logical_id="FortiGate",
+                logical_id="Appliance",
                 type="AWS::EC2::Instance",
                 properties={
                     "InstanceType": {"ref": "InstanceType"},
@@ -106,9 +106,9 @@ def _compute_plan() -> ResourcePlan:
         ],
         outputs=[
             CfnOutput(
-                logical_id="FortiGateId",
-                value={"ref": "FortiGate"},
-                description="FortiGate Instance ID",
+                logical_id="ApplianceId",
+                value={"ref": "Appliance"},
+                description="Appliance Instance ID",
             ),
         ],
     )
@@ -231,7 +231,7 @@ class TestThreeLayerChain:
                 ),
                 LayerSpec(
                     name=LayerName.COMPUTE,
-                    description="FortiGate",
+                    description="Appliance",
                     resource_types=["AWS::EC2::Instance"],
                     imports=[
                         LayerImport(name="PublicSubnet1Id", source_layer=LayerName.FOUNDATION, parameter_name="SubnetIdParam"),
@@ -258,13 +258,13 @@ class TestThreeLayerChain:
     def test_compute_subnet_ref_wired(self, layer_plan, resource_plans):
         """Compute's SubnetIdParam should be replaced with Ref to PublicSubnet1."""
         merged = merge_layers(layer_plan, resource_plans)
-        fgt = next(r for r in merged.resources if r.logical_id == "FortiGate")
+        fgt = next(r for r in merged.resources if r.logical_id == "Appliance")
         assert fgt.properties["SubnetId"] == {"ref": "PublicSubnet1"}
 
     def test_compute_sg_ref_wired(self, layer_plan, resource_plans):
         """Compute's SGIdParam in list should be replaced with Ref to MgmtSG."""
         merged = merge_layers(layer_plan, resource_plans)
-        fgt = next(r for r in merged.resources if r.logical_id == "FortiGate")
+        fgt = next(r for r in merged.resources if r.logical_id == "Appliance")
         assert fgt.properties["SecurityGroupIds"] == [{"ref": "MgmtSG"}]
 
     def test_all_import_params_removed(self, layer_plan, resource_plans):
@@ -286,7 +286,7 @@ class TestThreeLayerChain:
         """All 4 resources across 3 layers should be in merged output."""
         merged = merge_layers(layer_plan, resource_plans)
         resource_ids = {r.logical_id for r in merged.resources}
-        assert resource_ids == {"VPC", "PublicSubnet1", "MgmtSG", "FortiGate"}
+        assert resource_ids == {"VPC", "PublicSubnet1", "MgmtSG", "Appliance"}
 
 
 # ===================================================================
@@ -646,7 +646,7 @@ class TestDeepRefReplacement:
                         properties={
                             "Tags": [
                                 {"Key": "VpcId", "Value": {"ref": "VpcIdParam"}},
-                                {"Key": "Name", "Value": "FortiGate"},
+                                {"Key": "Name", "Value": "Appliance"},
                             ],
                             "NetworkInterfaces": [
                                 {

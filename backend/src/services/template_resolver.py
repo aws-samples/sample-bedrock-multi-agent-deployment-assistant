@@ -23,7 +23,7 @@ class TemplatePath(str, Enum):
 
 # Resource types inferred from resolved parameters
 _ALWAYS_REQUIRED = ["vpc", "security"]
-_FORTIGATE_TYPE = "fortigate"
+_COMPUTE_TYPE = "compute"
 _NETWORKING_TYPE = "networking"
 _OUTPUTS_TYPE = "outputs"
 
@@ -32,9 +32,9 @@ def _infer_resource_types(params: ResolvedIaCParameters) -> list[str]:
     """Infer required resource types from resolved IaC parameters."""
     types = list(_ALWAYS_REQUIRED)
 
-    # FortiGate instances
-    if params.fortigate_instances:
-        types.append(_FORTIGATE_TYPE)
+    # Compute instances
+    if params.appliance_instances:
+        types.append(_COMPUTE_TYPE)
 
     # Networking components based on deployment pattern
     pattern = params.deployment_pattern.lower()

@@ -1,0 +1,16 @@
+# config.yaml — minimal hand-edited product configuration
+# This is the only config file you maintain manually (~10 lines).
+# The catalog.lock.yaml is auto-generated from KB and committed to version control.
+
+product:
+  name: "NovaMind Inference Server"
+  vendor: "NovaMind AI"
+
+knowledge_base:
+  id: ""  # Bedrock KB ID — set in production
+  local_path: "knowledge-base"  # Local docs folder for development
+
+overrides:
+  validation:
+    checkov_skip: []
+    checkov_skip_rationale: {}

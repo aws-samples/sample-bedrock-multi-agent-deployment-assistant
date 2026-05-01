@@ -10,11 +10,11 @@ export class KmsConstruct extends Construct {
   constructor(scope: Construct, id: string) {
     super(scope, id);
 
-    this.key = new kms.Key(this, "AiLcmKey", {
+    this.key = new kms.Key(this, "AiDeployKey", {
       enableKeyRotation: true,
-      description: "AI-LCM encryption key for DynamoDB and S3",
+      description: "AI-Deploy encryption key for DynamoDB and S3",
       removalPolicy: cdk.RemovalPolicy.RETAIN,
-      alias: "alias/ai-lcm",
+      alias: "alias/ai-deploy",
     });
 
     const stack = cdk.Stack.of(this);
@@ -27,16 +27,16 @@ export class KmsConstruct extends Construct {
         resources: ["*"],
         conditions: {
           ArnLike: {
-            "kms:EncryptionContext:aws:logs:arn": `arn:aws:logs:${stack.region}:${stack.account}:log-group:/ai-lcm/*`,
+            "kms:EncryptionContext:aws:logs:arn": `arn:aws:logs:${stack.region}:${stack.account}:log-group:/ai-deploy/*`,
           },
         },
       }),
     );
 
     new ssm.StringParameter(this, "KeyArnParam", {
-      parameterName: "/ai-lcm/kms-key-arn",
+      parameterName: "/ai-deploy/kms-key-arn",
       stringValue: this.key.keyArn,
-      description: "KMS key ARN for AI-LCM encryption",
+      description: "KMS key ARN for AI-Deploy encryption",
     });
   }
 }

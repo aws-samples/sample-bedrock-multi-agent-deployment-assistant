@@ -1,9 +1,8 @@
-"""Documentation agent — generates 3 deliverables after IaC generation.
+"""Documentation agent — generates 2 deliverables after IaC generation.
 
 Deliverables (generated in parallel via asyncio.gather):
   1. Architecture Diagram — Mermaid architecture-beta with AWS icons + validation-fix loop
-  2. User Guide — comprehensive deployment guide (single LLM call)
-  3. STRIDE Threat Model — security analysis (single LLM call)
+  2. User Guide — comprehensive deployment/readme guide (single LLM call)
 
 Each section notifies the caller via callback as it completes, enabling
 progressive rendering on the frontend.
@@ -34,8 +33,21 @@ logger = logging.getLogger(__name__)
 _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 
+class _PartialFormatMap(dict):
+    """Dict that returns '{key}' for missing keys — enables partial .format_map()."""
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
+
+
 def _load_prompt(name: str) -> str:
-    return (_PROMPTS_DIR / name).read_text()
+    """Load a prompt template and inject catalog context variables."""
+    from src.services.catalog_loader import get_catalog
+    template = (_PROMPTS_DIR / name).read_text()
+    try:
+        catalog = get_catalog()
+        return template.format_map(_PartialFormatMap(catalog.get_prompt_context()))
+    except Exception:
+        return template
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +56,7 @@ def _load_prompt(name: str) -> str:
 
 _DIAGRAM_SYSTEM_PROMPT = """\
 You are an expert AWS architecture diagram generator. You produce valid Mermaid \
-architecture-beta diagrams with official AWS icons for FortiGate-VM deployments.
+architecture-beta diagrams with official AWS icons for cloud deployments.
 
 Output ONLY the raw Mermaid code. No markdown fences, no explanation, no preamble.\
 """
@@ -152,7 +164,7 @@ async def _generate_and_validate_diagram(
 # ---------------------------------------------------------------------------
 
 _TEXT_SYSTEM_PROMPT = """\
-You are an FCCS Technical Writer producing documentation for a FortiGate-VM \
+You are a Senior Technical Writer producing documentation for a cloud \
 deployment on AWS. Output ONLY the requested content in Markdown. \
 No preamble, no wrapping fences, no meta-commentary. \
 Use tables, bullet points, and numbered lists for clarity. \
@@ -181,25 +193,6 @@ def _generate_user_guide(context: dict[str, str], state: dict) -> str:
     return strip_fences(str(result))
 
 
-@bedrock_retry("docs-threat-model")
-def _generate_threat_model(context: dict[str, str], state: dict) -> str:
-    """Generate the complete STRIDE threat model in a single LLM call."""
-    user_prompt = _load_prompt("docs_threat_model.txt").replace(
-        "{design_json}", context["design_json"]
-    ).replace(
-        "{requirements_json}", context["requirements_json"]
-    ).replace(
-        "{cft_template}", context["cft_template"]
-    )
-    model = create_bedrock_model(max_tokens=settings.docs_threat_model_max_tokens)
-    agent = Agent(
-        name="docs-threat-model",
-        model=model,
-        system_prompt=_TEXT_SYSTEM_PROMPT,
-        callback_handler=logging_callback_handler,
-    )
-    result = bedrock_breaker.call(agent, user_prompt, invocation_state=state)
-    return strip_fences(str(result))
 
 
 # ---------------------------------------------------------------------------
@@ -228,11 +221,11 @@ async def generate_documentation(
     project_id: str = "default",
     on_section_complete: Callable[[str, str], None] | None = None,
 ) -> DocumentationOutput:
-    """Generate all 3 documentation deliverables in parallel.
+    """Generate documentation deliverables in parallel.
 
-    Runs diagram, user guide, and threat model concurrently via
-    ``asyncio.gather()``. The diagram task internally performs a
-    sequential validate→fix loop while text sections run alongside it.
+    Runs diagram and user guide concurrently via ``asyncio.gather()``.
+    The diagram task internally performs a sequential validate→fix loop
+    while the user guide runs alongside it.
 
     Args:
         design: Approved design option dict.
@@ -287,24 +280,11 @@ async def generate_documentation(
             _notify("user_guide", error_text)
             raise
 
-    async def _threat_task() -> str:
-        try:
-            start = time.perf_counter()
-            threat = await asyncio.to_thread(_generate_threat_model, context, state)
-            _record_metrics("documentation_threat", (time.perf_counter() - start) * 1000, state)
-            _notify("threat_model", threat)
-            return threat
-        except Exception as exc:
-            error_text = f"*Threat model generation failed: {exc}*"
-            _notify("threat_model", error_text)
-            raise
-
-    # --- Run all 3 in parallel ----------------------------------------------
+    # --- Run diagram + guide in parallel -------------------------------------
 
     results = await asyncio.gather(
         _diagram_task(),
         _guide_task(),
-        _threat_task(),
         return_exceptions=True,
     )
 
@@ -314,7 +294,6 @@ async def generate_documentation(
     diagram_attempts = 0
     diagram_passed = False
     user_guide = ""
-    threat_model = ""
 
     # Diagram result
     if isinstance(results[0], BaseException):
@@ -330,21 +309,13 @@ async def generate_documentation(
     else:
         user_guide = results[1]
 
-    # Threat model result
-    if isinstance(results[2], BaseException):
-        logger.error("Threat model generation failed: %s", results[2], exc_info=results[2])
-        threat_model = f"*Threat model generation failed: {results[2]}*"
-    else:
-        threat_model = results[2]
-
     total_ms = (time.perf_counter() - overall_start) * 1000
     logger.info(
         "Documentation generation complete in %.0fms: "
-        "guide=%d chars, threat=%d chars, diagram=%d chars "
+        "guide=%d chars, diagram=%d chars "
         "(validation=%s, fix_attempts=%d)",
         total_ms,
         len(user_guide),
-        len(threat_model),
         len(diagram),
         "passed" if diagram_passed else "failed",
         diagram_attempts,
@@ -352,7 +323,6 @@ async def generate_documentation(
 
     return DocumentationOutput(
         user_guide=user_guide,
-        threat_model=threat_model,
         architecture_diagram=diagram,
         diagram_fix_attempts=diagram_attempts,
         diagram_validation_passed=diagram_passed,
@@ -408,10 +378,8 @@ async def regenerate_section(
             "Diagram regeneration: %d chars (validation=%s, attempts=%d)",
             len(content), "passed" if passed else "failed", attempts,
         )
-    elif section_name == "user_guide":
-        content = await asyncio.to_thread(_generate_user_guide, context, state)
     else:
-        content = await asyncio.to_thread(_generate_threat_model, context, state)
+        content = await asyncio.to_thread(_generate_user_guide, context, state)
 
     duration_ms = (time.perf_counter() - start) * 1000
     _record_metrics(f"documentation_{section_name}_regen", duration_ms, state)

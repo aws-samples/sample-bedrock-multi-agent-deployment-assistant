@@ -1,28 +1,26 @@
-# FortiGate CloudFormation Validation Rules
-# Custom cfn-guard rules for FortiNet FortiGate deployments
+# Appliance CloudFormation Validation Rules
+# Custom cfn-guard rules for appliance deployments (GPU instances)
 
-# Rule 1: FortiGate instances must use approved compute-optimized types
-rule FortiGateInstanceType when Resources.*[ Type == "AWS::EC2::Instance" ] {
+# Rule 1: Appliance instances must use approved GPU instance types
+rule ApplianceInstanceType when Resources.*[ Type == "AWS::EC2::Instance" ] {
     Properties.InstanceType in [
-        "c5.large", "c5.xlarge", "c5.2xlarge", "c5.4xlarge", "c5.9xlarge",
-        "c5n.large", "c5n.xlarge", "c5n.2xlarge", "c5n.4xlarge", "c5n.9xlarge",
-        "c6i.large", "c6i.xlarge", "c6i.2xlarge", "c6i.4xlarge",
-        "c6in.large", "c6in.xlarge", "c6in.2xlarge", "c6in.4xlarge",
-        "c7i.large", "c7i.xlarge", "c7i.2xlarge", "c7i.4xlarge",
-        "m5.large", "m5.xlarge", "m5.2xlarge", "m5.4xlarge",
-        "r5.large", "r5.xlarge", "r5.2xlarge"
+        "g5.xlarge", "g5.2xlarge", "g5.4xlarge", "g5.12xlarge", "g5.48xlarge",
+        "g4dn.xlarge", "g4dn.2xlarge", "g4dn.4xlarge", "g4dn.12xlarge",
+        "p4d.24xlarge", "p4de.24xlarge",
+        "p5.48xlarge", "p5e.48xlarge",
+        "inf2.xlarge", "inf2.8xlarge", "inf2.24xlarge", "inf2.48xlarge"
     ]
     <<
-        Violation: FortiGate EC2 instances must use approved instance types.
-        Fix: Use compute-optimized (c5/c5n/c6i/c6in/c7i), memory-optimized (r5), or general-purpose (m5) instances.
+        Violation: Appliance EC2 instances must use approved GPU/inference instance types.
+        Fix: Use GPU-accelerated (g5/g4dn), training (p4d/p5), or inference (inf2) instances.
     >>
 }
 
-# Rule 2: FortiGate EBS volumes must be encrypted
-rule FortiGateVolumeEncryption when Resources.*[ Type == "AWS::EC2::Instance" ] {
+# Rule 2: EBS volumes must be encrypted
+rule ApplianceVolumeEncryption when Resources.*[ Type == "AWS::EC2::Instance" ] {
     Properties.BlockDeviceMappings[*].Ebs.Encrypted == true
     <<
-        Violation: FortiGate EBS volumes must be encrypted.
+        Violation: EBS volumes must be encrypted.
         Fix: Set Encrypted: true on all BlockDeviceMappings.
     >>
 }
@@ -71,7 +69,8 @@ rule RequiredTags when Resources.*[
         "AWS::EC2::RouteTable", "AWS::EC2::InternetGateway",
         "AWS::EC2::NatGateway", "AWS::EC2::EIP",
         "AWS::ElasticLoadBalancingV2::LoadBalancer",
-        "AWS::ElasticLoadBalancingV2::TargetGroup"
+        "AWS::ElasticLoadBalancingV2::TargetGroup",
+        "AWS::AutoScaling::AutoScalingGroup"
     ]
 ] {
     Properties.Tags[*].Key == "Project"
@@ -83,14 +82,14 @@ rule RequiredTags when Resources.*[
     >>
 }
 
-# Rule 7: IAM roles must not use wildcard actions (except ec2:Describe*)
+# Rule 7: IAM roles must not use wildcard actions (except Describe*)
 rule IAMRoleLeastPrivilege when Resources.*[ Type == "AWS::IAM::Role" ] {
     Properties.Policies[*].PolicyDocument.Statement[*] {
         when Action != "ec2:Describe*" {
             Action != "*"
             <<
                 Violation: IAM policies must not use wildcard (*) for Action.
-                Fix: Specify explicit actions instead of '*'. Exception: ec2:Describe* is allowed.
+                Fix: Specify explicit actions instead of '*'. Exception: Describe* is allowed.
             >>
         }
     }

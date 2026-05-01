@@ -40,7 +40,7 @@ FieldType = Literal["enum", "int", "float", "str", "list_str"]
 class PlannedQuestion(BaseModel):
     """A single question in the execution plan."""
 
-    field_path: str = Field(description="Dotted path, e.g. 'cloud_routing_protocol' or 'sd-wan.role'")
+    field_path: str = Field(description="Dotted path, e.g. 'gpu_budget' or 'realtime-inference.model_size_category'")
     question_template: str = Field(description="Natural language question text")
     kb_context: str = Field("", description="Relevant KB snippet for this field")
     expected_type: FieldType = "str"

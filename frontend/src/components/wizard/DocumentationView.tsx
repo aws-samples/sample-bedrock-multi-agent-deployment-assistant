@@ -19,13 +19,12 @@ interface DocumentationViewProps {
   error?: string | null;
 }
 
-type DocTab = "guide" | "threat" | "diagram";
+type DocTab = "guide" | "diagram";
 
 const TABS: { key: DocTab; field: keyof DocumentationOutput; label: string }[] =
   [
     { key: "diagram", field: "architecture_diagram", label: "Architecture Diagram" },
-    { key: "guide", field: "user_guide", label: "User Guide" },
-    { key: "threat", field: "threat_model", label: "Threat Model" },
+    { key: "guide", field: "user_guide", label: "Deployment Guide" },
   ];
 
 export function DocumentationView({
@@ -44,25 +43,24 @@ export function DocumentationView({
   const isTaskActive =
     docsTaskStatus === "queued" || docsTaskStatus === "processing";
   const hasAnyContent = docs && (
-    docs.architecture_diagram || docs.user_guide || docs.threat_model
+    docs.architecture_diagram || docs.user_guide
   );
 
   // Auto-select the first available tab when content arrives
   useEffect(() => {
     if (!docs) return;
-    if (docs.architecture_diagram && activeTab !== "diagram") return; // already has a selection
+    if (docs.architecture_diagram && activeTab !== "diagram") return;
     if (docs.architecture_diagram) { setActiveTab("diagram"); return; }
     if (docs.user_guide) { setActiveTab("guide"); return; }
-    if (docs.threat_model) { setActiveTab("threat"); return; }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docs?.architecture_diagram, docs?.user_guide, docs?.threat_model]);
+  }, [docs?.architecture_diagram, docs?.user_guide]);
 
   // Show pure loading state when task is active and no content yet
   if ((isTaskActive || (loading && !docs)) && !hasAnyContent) {
     return (
       <StepContainer
         title="Documentation"
-        description="Generating project deliverables for your FortiGate deployment."
+        description="Generating project deliverables for your cloud deployment."
         error={error}
       >
         <DocsLoading taskStatus={docsTaskStatus} taskId={docsTaskId} docs={docs} />
@@ -92,7 +90,7 @@ export function DocumentationView({
   return (
     <StepContainer
       title="Documentation"
-      description="Generated project deliverables for your FortiGate deployment."
+      description="Generated project deliverables for your cloud deployment."
       onBack={onBack}
       error={error}
     >
@@ -160,19 +158,6 @@ export function DocumentationView({
           ) : isTaskActive ? (
             <div className="py-8 text-center text-gray-400 text-sm">
               Generating user guide...
-            </div>
-          ) : null
-        )}
-        {activeTab === "threat" && (
-          isRegeneratingActiveTab ? (
-            <div className="py-8 text-center text-gray-400 text-sm">
-              Regenerating threat model...
-            </div>
-          ) : docs?.threat_model ? (
-            <MarkdownRenderer content={docs.threat_model} />
-          ) : isTaskActive ? (
-            <div className="py-8 text-center text-gray-400 text-sm">
-              Generating threat model...
             </div>
           ) : null
         )}

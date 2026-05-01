@@ -20,7 +20,7 @@ This layer must export these resources (other layers depend on them):
    - Missing required property -> add with a sensible default or intrinsic reference
    - Wrong type -> convert to the correct type (e.g., string to list)
 6. For checkov findings: apply the specific remediation (e.g., add Encrypted: true).
-7. For cfn-guard findings: apply FortiGate-specific corrections per the rule message.
+7. For cfn-guard findings: apply product-specific corrections per the rule message.
 8. Preserve all existing configurations that are NOT related to the reported errors.
 9. SourceDestCheck: false on data-plane ENIs is INTENTIONAL — do NOT change it.
 

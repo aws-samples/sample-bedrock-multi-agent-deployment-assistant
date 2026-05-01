@@ -24,12 +24,16 @@ from pydantic import BaseModel, Field
 # ---------------------------------------------------------------------------
 
 
-class LayerName(str, Enum):
-    """Standard layer names for template decomposition."""
+class LayerName:
+    """Standard layer name constants for template decomposition.
+
+    These are the common names used across patterns. Custom patterns
+    can use any string as a layer name (e.g., 'scaling', 'storage').
+    """
 
     FOUNDATION = "foundation"    # VPC, Subnets, IGW, NAT, Route Tables
     SECURITY = "security"        # Security Groups, NACLs, IAM Roles
-    COMPUTE = "compute"          # FortiGate instances, ENIs, EIPs
+    COMPUTE = "compute"          # Appliance instances, ENIs, EIPs
     HA = "ha"                    # HA-sync subnets, heartbeat config, failover
     INTEGRATION = "integration"  # TGW, GWLB, VPN, endpoints
 
@@ -59,7 +63,7 @@ class LayerImport(BaseModel):
     name: str = Field(
         description="Import name — must match an export name from source_layer"
     )
-    source_layer: LayerName
+    source_layer: str
     parameter_name: str = Field(
         description="CFN Parameter name in this layer's ResourcePlan "
         "that receives the value during generation"
@@ -75,7 +79,7 @@ class LayerImport(BaseModel):
 class LayerSpec(BaseModel):
     """Specification for a single layer in the decomposition."""
 
-    name: LayerName
+    name: str
     description: str
     resource_types: list[str] = Field(
         description="AWS resource type prefixes this layer is responsible for "
@@ -98,15 +102,15 @@ class LayerPlan(BaseModel):
     """Complete decomposition plan for a multi-layer template.
 
     Defines all layers and their import/export contracts.  For common
-    FortiGate patterns this is predefined (zero LLM).  For novel
-    deployments, the Architecture Planner LLM generates it.
+    patterns this is predefined (zero LLM).  For novel deployments,
+    the Architecture Planner LLM generates it.
     """
 
     pattern_name: str
     description: str
     layers: list[LayerSpec] = Field(min_length=1)
 
-    def get_layer(self, name: LayerName) -> LayerSpec | None:
+    def get_layer(self, name: str) -> LayerSpec | None:
         """Look up a layer by name."""
         for layer in self.layers:
             if layer.name == name:
@@ -126,7 +130,7 @@ class LayerPlan(BaseModel):
         """
         remaining = list(self.layers)
         groups: list[list[LayerSpec]] = []
-        resolved: set[LayerName] = set()
+        resolved: set[str] = set()
 
         while remaining:
             group = [

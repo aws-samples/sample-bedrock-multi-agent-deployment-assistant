@@ -27,7 +27,7 @@ export class EventBridgePipeConstruct extends Construct {
     // IAM role for the pipe
     const pipeRole = new iam.Role(this, "PipeRole", {
       assumedBy: new iam.ServicePrincipal("pipes.amazonaws.com"),
-      description: "Role for AI-LCM task notification EventBridge Pipe",
+      description: "Role for AI-Deploy task notification EventBridge Pipe",
     });
 
     // Grant stream read on the DynamoDB table
@@ -41,7 +41,7 @@ export class EventBridgePipeConstruct extends Construct {
 
     // Log group for pipe error logging
     const pipeLogGroup = new logs.LogGroup(this, "PipeLogGroup", {
-      logGroupName: "/ai-lcm/pipes/task-notification",
+      logGroupName: "/ai-deploy/pipes/task-notification",
       retention: logs.RetentionDays.SIX_MONTHS,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       encryptionKey: props.encryptionKey,
@@ -51,7 +51,7 @@ export class EventBridgePipeConstruct extends Construct {
 
     // EventBridge Pipe (L1 CfnPipe)
     new pipes.CfnPipe(this, "TaskNotificationPipe", {
-      name: "ai-lcm-task-notification",
+      name: "ai-deploy-task-notification",
       roleArn: pipeRole.roleArn,
       source: props.table.tableStreamArn!,
       sourceParameters: {
@@ -67,7 +67,7 @@ export class EventBridgePipeConstruct extends Construct {
                 eventName: ["MODIFY"],
                 dynamodb: {
                   Keys: {
-                    sk: { S: [{ prefix: "TASK#" }, { prefix: "IAC_TASK#" }] },
+                    sk: { S: [{ prefix: "TASK#" }, { prefix: "IAC_TASK#" }, { prefix: "DOCS_TASK#" }] },
                   },
                   NewImage: {
                     status: { S: ["completed", "failed"] },

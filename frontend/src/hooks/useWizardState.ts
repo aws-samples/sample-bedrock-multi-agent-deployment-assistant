@@ -295,7 +295,7 @@ function wizardReducer(state: WizardState, action: WizardAction): WizardState {
     }
 
     case "DOCS_SECTION_READY": {
-      const currentDocs = state.docs ?? { user_guide: "", threat_model: "", architecture_diagram: "" };
+      const currentDocs = state.docs ?? { user_guide: "", architecture_diagram: "" };
       return {
         ...state,
         docs: { ...currentDocs, [action.section]: action.content },
@@ -555,7 +555,7 @@ export function useWizardState(
   const handleDocsSection = useCallback(
     (section: string, content: string) => {
       const validSections: Array<keyof DocumentationOutput> = [
-        "user_guide", "threat_model", "architecture_diagram",
+        "user_guide", "architecture_diagram",
       ];
       if (validSections.includes(section as keyof DocumentationOutput)) {
         dispatch({

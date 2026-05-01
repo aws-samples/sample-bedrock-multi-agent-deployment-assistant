@@ -7,18 +7,15 @@ Curveball: deviation triggers KB re-fetch + Sonnet re-plan.
 
 import asyncio
 import logging
-from enum import Enum
 from typing import Any, AsyncGenerator, Optional
 
 from src.agents.interview_executor import execute_turn
-from src.agents.interview_planner import _FIELD_ENUM_REGISTRY, generate_plan, replan
+from src.agents.interview_planner import generate_plan, replan
 from src.config.circuit_breaker import CircuitOpenError
 from src.models.interview_plan import QuestionPlan
 from src.models.requirements import (
     InterviewProgress,
-    RoutingProtocol,
     UseCases,
-    WorkloadResilience,
 )
 from src.services.plan_cache import plan_cache
 from src.storage import get_store
@@ -33,36 +30,41 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _parse_use_cases(use_case: str | None) -> list[UseCases]:
-    """Parse comma-separated use case string into enum list."""
+def _parse_use_cases(use_case: str | None) -> list[str]:
+    """Parse comma-separated use case string into list."""
     if not use_case:
         return []
-    result: list[UseCases] = []
+    result: list[str] = []
     for raw in use_case.split(","):
         raw = raw.strip()
-        try:
-            result.append(UseCases(raw))
-        except ValueError:
-            continue
+        if raw:
+            result.append(raw)
     return result
 
 
-def _safe_enum(enum_cls: type[Enum], value: Any) -> Any:
-    """Try to coerce a value to an enum, return None if it doesn't match."""
+def _get_enum_fields() -> dict[str, list[str]]:
+    """Get enum-typed base fields and their valid options from the catalog."""
+    try:
+        from src.services.catalog_loader import get_catalog
+        catalog = get_catalog()
+        fields: dict[str, list[str]] = {}
+        for field in catalog.get_blocking_base_fields():
+            if field.options:
+                fields[field.name] = field.options
+        return fields
+    except Exception:
+        return {}
+
+
+def _safe_enum(enum_cls: Any, value: Any) -> Any:
+    """Validate a value against the catalog's valid options for that field type.
+
+    Returns the value if valid, None otherwise.
+    """
     if value is None:
         return None
-    try:
-        return enum_cls(value)
-    except (ValueError, KeyError):
-        logger.warning("Invalid %s value %r — dropping", enum_cls.__name__, value)
-        return None
-
-
-# Derived from the planner's single registry — only include enum-typed fields
-_ENUM_FIELDS: dict[str, type[Enum]] = {
-    fp: enum_cls for fp, (enum_cls, etype) in _FIELD_ENUM_REGISTRY.items()
-    if etype == "enum"
-}
+    # Simply pass through — validation is done field-by-field in _plan_to_progress
+    return value
 
 
 def _plan_to_progress(plan: QuestionPlan, message: str) -> InterviewProgress:
@@ -70,18 +72,20 @@ def _plan_to_progress(plan: QuestionPlan, message: str) -> InterviewProgress:
     fields = plan.populated_fields
 
     # Validate enum fields — revert invalid values so the question is re-asked
-    for field_path, enum_cls in _ENUM_FIELDS.items():
+    enum_fields = _get_enum_fields()
+    for field_path, valid_options in enum_fields.items():
         raw = fields.get(field_path)
-        if raw is not None and _safe_enum(enum_cls, raw) is None:
+        if raw is not None and raw not in valid_options:
+            logger.warning("Invalid %s value %r — reverting", field_path, raw)
             plan.revert_answer(field_path)
 
-    # Extract use_case_fields (dotted paths like "sd-wan.role" → use_case_fields["role"])
+    # Extract use_case_fields (dotted paths like "realtime-inference.model_size_category" → use_case_fields["model_size_category"])
     use_case_fields: dict = {}
     for entry in plan.entries:
         if entry.status not in ("answered", "auto_filled"):
             continue
         if "." in entry.field_path:
-            # Use-case-specific: "sd-wan.role" → key by field name
+            # Use-case-specific: "realtime-inference.model_size_category" → key by field name
             _, field_name = entry.field_path.split(".", 1)
             use_case_fields[field_name] = entry.answered_value
     # Also include auto-filled use-case fields
@@ -93,9 +97,9 @@ def _plan_to_progress(plan: QuestionPlan, message: str) -> InterviewProgress:
     progress = InterviewProgress(
         response_message=message,
         use_cases=fields.get("use_cases"),
-        cloud_routing_protocol=_safe_enum(RoutingProtocol, fields.get("cloud_routing_protocol")),
-        resilience=_safe_enum(WorkloadResilience, fields.get("resilience")),
-        bandwidth=fields.get("bandwidth"),
+        gpu_budget=_safe_enum(None, fields.get("gpu_budget")),
+        availability_requirement=_safe_enum(None, fields.get("availability_requirement")),
+        data_sensitivity=_safe_enum(None, fields.get("data_sensitivity")),
         user_info=fields.get("user_info"),
         compliance=fields.get("compliance"),
         solution_description=fields.get("solution_description"),
@@ -145,9 +149,9 @@ async def _interview_chat_events(
         if plan is None:
             # === PLANNING PHASE (Turn 1) ===
             seed_data = seed or {}
-            # Pre-populate use_cases and bandwidth from seed
+            # Pre-populate use_cases from seed
             if use_case:
-                seed_data["use_cases"] = [uc.value for uc in use_cases]
+                seed_data["use_cases"] = list(use_cases)
 
             plan, initial_message = await asyncio.to_thread(
                 generate_plan, seed_data, use_cases, populated_fields, tenant_id,

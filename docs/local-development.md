@@ -1,162 +1,159 @@
-# Local Development Setup
-
-Get AI-LCM running on your machine for development.
+# Local Development Guide
 
 ## Prerequisites
 
-| Tool | Version | Install |
-|------|---------|---------|
-| Python | 3.12+ | [python.org](https://www.python.org/downloads/) |
-| uv | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-| Node.js | 22+ | [nodejs.org](https://nodejs.org/) |
-| pnpm | 9+ | `npm install -g pnpm` |
-| AWS CLI | v2 | [aws.amazon.com/cli](https://aws.amazon.com/cli/) |
+- Python 3.12+ (via mise, pyenv, or system)
+- Node.js 20+ and pnpm
+- uv (Python package manager)
+- AWS credentials configured (for Bedrock access — optional for local KB mode)
 
-**AWS credentials** must be configured with Bedrock model access:
+## Initial Setup
 
 ```bash
-aws configure    # set your access key, secret, and region
-```
-
-You need access to Claude models in Amazon Bedrock. Go to the [Bedrock console](https://console.aws.amazon.com/bedrock/) → **Model access** → request access to **Anthropic Claude** models in your target region.
-
-## Setup
-
-### 1. Clone & Install
-
-```bash
-git clone <repo-url> && cd ai-lcm
+# Clone the repo
+git clone <repo-url> && cd ai-deploy-assistant
 
 # Backend
-cd backend && uv sync && cd ..
+cd backend
+uv sync                    # Creates .venv and installs all dependencies
+cp .env.sample .env        # Create local env config
+cd ..
 
 # Frontend
-cd frontend && pnpm install && cd ..
+cd frontend
+pnpm install
+cd ..
 ```
 
-### 2. Configure Environment
+## Environment Configuration
+
+Edit `backend/.env`:
 
 ```bash
-cd backend
-cp .env.sample .env
+# Minimum required for local development
+AI_DEPLOY_AWS_REGION=us-east-1
+AI_DEPLOY_STORAGE_BACKEND=local          # File-based storage (no DynamoDB/S3 needed)
+AI_DEPLOY_KNOWLEDGE_BASE_ID=             # Leave empty to use local KB
+AI_DEPLOY_DEBUG=true                     # Enables permissive CORS for localhost
 ```
 
-Edit `backend/.env` — the minimum config for local dev:
+### With Bedrock (recommended for full experience)
 
-```ini
-AI_LCM_AWS_REGION=us-east-1          # your Bedrock region
-AI_LCM_STORAGE_BACKEND=local         # JSON file storage (no AWS infra needed)
-AI_LCM_DEBUG=true                    # verbose logging
+```bash
+AI_DEPLOY_AWS_REGION=us-east-1
+AI_DEPLOY_PRIMARY_MODEL_ID=us.anthropic.claude-sonnet-4-20250514-v1:0
+AI_DEPLOY_LIGHTWEIGHT_MODEL_ID=us.anthropic.claude-haiku-3-20250310-v1:0
+AI_DEPLOY_KNOWLEDGE_BASE_ID=YOUR_KB_ID   # Optional — Bedrock KB for grounding
 ```
 
-The frontend is pre-configured in `frontend/.env.local`:
+### Without Bedrock (local KB mode)
 
-```ini
-NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
-NEXT_PUBLIC_WEBSOCKET_URL=ws://localhost:8000/ws
+If you don't have Bedrock access, the system uses local knowledge base documents:
+
+```bash
+AI_DEPLOY_KNOWLEDGE_BASE_ID=             # Empty — triggers local KB fallback
 ```
 
-### 3. Start Development
+The `config.yaml` at project root points to `knowledge-base/` directory. Documents placed there are indexed and searched using TF-IDF scoring.
+
+## Running the Application
+
+### Both services (recommended)
 
 ```bash
 ./dev.sh
 ```
 
-This starts:
-- **Backend**: http://localhost:8000 (FastAPI with hot reload)
-- **Frontend**: http://localhost:3000 (Next.js dev server)
-
-Press `Ctrl+C` to stop both.
-
-Or start them individually:
-
-```bash
-# Terminal 1
-cd backend && uv run uvicorn src.main:app --host 127.0.0.1 --port 8000 --reload
-
-# Terminal 2
-cd frontend && pnpm dev
-```
-
-### 4. Verify
-
-```bash
-curl http://localhost:8000/ping
-# {"status": "ok"}
-```
-
-Open http://localhost:3000 in your browser.
-
-## Running Tests
-
-### Backend
+### Backend only
 
 ```bash
 cd backend
-uv run pytest tests/ -v                    # all tests (260+)
-uv run pytest tests/test_api.py -v         # single file
-uv run pytest tests/ -k "test_circuit"     # keyword filter
-uv run ruff check src/ tests/              # lint
+uv run uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### Infrastructure
+### Frontend only
 
 ```bash
-cd infra
-npm run build && npm run test              # CDK template tests (24 assertions)
+cd frontend
+pnpm dev
 ```
 
-## Local Storage
+### Access Points
 
-With `AI_LCM_STORAGE_BACKEND=local`, data is stored as JSON files:
+| Service | URL |
+|---------|-----|
+| Frontend | http://localhost:3000 |
+| Backend API | http://localhost:8000 |
+| Health check | http://localhost:8000/ping |
+| API docs (Swagger) | http://localhost:8000/docs |
+
+## Local Knowledge Base
+
+The local KB is the development fallback for Bedrock. It reads markdown files from `knowledge-base/` with the same path structure as the S3 bucket:
 
 ```
-backend/.local-data/
-└── {tenant_id}/
-    └── {project_id}/
-        ├── project.json
-        ├── requirements.json
-        ├── design.json
-        ├── iac.json
-        └── docs.json
+knowledge-base/
+  {use_case}/
+    {deployment_type}/
+      {document_type}.md
 ```
 
-Delete `.local-data/` to reset all project data.
+### Adding documents
 
-## Optional: Knowledge Base
+1. Create a markdown file in the appropriate path
+2. The `LocalKBProvider` indexes on first search (lazy loading)
+3. To force re-indexing, restart the backend
 
-The app works without a Knowledge Base, but design quality improves with one. If you have a Bedrock KB configured:
+### How search works locally
 
-```ini
-AI_LCM_KNOWLEDGE_BASE_ID=XXXXXXXXXX
+- **TF-IDF scoring** — term frequency x inverse document frequency
+- **Path-based filtering** — `use_case` and `deployment_type` map to directory names, `document_type` maps to the filename stem
+- **Results capped at 2000 chars** per document (same as Bedrock context window)
+
+## Running Tests
+
+```bash
+cd backend
+
+# Full test suite
+AI_DEPLOY_KNOWLEDGE_BASE_ID="" uv run pytest tests/ -q
+
+# Specific test file
+uv run pytest tests/test_layer_plan.py -v
+
+# With coverage
+uv run pytest tests/ --cov=src --cov-report=term-missing
 ```
 
-See [Knowledge Base Setup Guide](./knowledge-base-setup-guide.md) for ingestion details.
+## Storage
+
+In local mode (`AI_DEPLOY_STORAGE_BACKEND=local`), all data is stored in `.local-data/sessions/` as JSON files. This directory is gitignored.
+
+In AWS mode, DynamoDB stores metadata and S3 stores artifacts.
+
+## Async Processing
+
+When `AI_DEPLOY_SQS_*` queue URLs are not configured (the default for local dev), the backend spawns a local worker thread that processes design, IaC, and documentation tasks synchronously. No SQS or Lambda needed.
 
 ## Common Issues
 
-### "No Bedrock access"
+### "Knowledge base not configured"
 
-Ensure your AWS credentials have the `bedrock:InvokeModel` permission and you've requested model access in the Bedrock console for your region.
+This is normal if `AI_DEPLOY_KNOWLEDGE_BASE_ID` is empty AND no documents exist in `knowledge-base/`. The system still works — the LLM uses its built-in knowledge instead of KB grounding.
 
-### "CORS error in browser"
+### Broken virtualenv
 
-Check that `AI_LCM_CORS_ORIGINS` in `backend/.env` includes `http://localhost:3000` (the default).
-
-### "WebSocket disconnects immediately"
-
-The local WebSocket server is at `ws://localhost:8000/ws`. Ensure `NEXT_PUBLIC_WEBSOCKET_URL` in `frontend/.env.local` matches.
-
-### Backend won't start
+If the venv has dangling symlinks (e.g., after Python version change):
 
 ```bash
-cd backend && uv sync    # reinstall deps
+cd backend
+rm -rf .venv
+uv sync
 ```
 
-If using Python 3.13+, downgrade to 3.12 — some dependencies require it.
-
-### Frontend build fails
+### Port already in use
 
 ```bash
-cd frontend && rm -rf node_modules .next && pnpm install
+lsof -i :8000   # Find the process
+kill <PID>       # Kill it
 ```

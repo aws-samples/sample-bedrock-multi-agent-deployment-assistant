@@ -1,6 +1,6 @@
 """Blueprint-driven parameter resolver for IaC generation.
 
-Reads VPCBlueprint and FortiGateBlueprint from design options and
+Reads VPCBlueprint and ApplianceBlueprint from design options and
 deterministically computes all networking parameters (subnet CIDRs,
 interface IPs, tags, AZ assignments).
 
@@ -23,7 +23,7 @@ from src.models.design import (
     DeploymentParameters,
     DesignOption,
     InterfaceBlueprint,
-    ResolvedFortiGate,
+    ResolvedAppliance,
     ResolvedIaCParameters,
     ResolvedInterface,
     ResolvedVPC,
@@ -102,46 +102,46 @@ class ParameterResolver:
                 vpc_bp.availability_zones,
             )
 
-        # Resolve each FortiGate blueprint
-        resolved_fgts: list[ResolvedFortiGate] = []
-        # Track FortiGate index per VPC role for IP offset assignment
-        fgt_index_by_vpc: dict[str, int] = {}
+        # Resolve each Appliance blueprint
+        resolved_appliances: list[ResolvedAppliance] = []
+        # Track Appliance index per VPC role for IP offset assignment
+        appliance_index_by_vpc: dict[str, int] = {}
 
-        for fgt_bp in design.fortigate_topology:
-            fgt_index = fgt_index_by_vpc.get(fgt_bp.vpc_role, 0)
-            fgt_index_by_vpc[fgt_bp.vpc_role] = fgt_index + 1
+        for appliance_bp in design.appliance_topology:
+            appliance_idx = appliance_index_by_vpc.get(appliance_bp.vpc_role, 0)
+            appliance_index_by_vpc[appliance_bp.vpc_role] = appliance_idx + 1
 
             # Find the matching VPC blueprint for AZ count
-            vpc_bp = self._find_vpc_blueprint(design.vpc_topology, fgt_bp.vpc_role)
+            vpc_bp = self._find_vpc_blueprint(design.vpc_topology, appliance_bp.vpc_role)
             vpc_azs = azs[: vpc_bp.availability_zones]
 
-            # Assign FortiGate to an AZ based on its index within the VPC
-            fgt_az = vpc_azs[fgt_index % len(vpc_azs)]
+            # Assign Appliance to an AZ based on its index within the VPC
+            appliance_az = vpc_azs[appliance_idx % len(vpc_azs)]
 
             # Collect subnets for this VPC + AZ for interface assignment
             az_subnets = [
-                subnet_lookup[(fgt_bp.vpc_role, role, fgt_az)]
+                subnet_lookup[(appliance_bp.vpc_role, role, appliance_az)]
                 for role in vpc_bp.subnet_roles
-                if (fgt_bp.vpc_role, role, fgt_az) in subnet_lookup
+                if (appliance_bp.vpc_role, role, appliance_az) in subnet_lookup
             ]
 
             interfaces = self._assign_interfaces(
-                az_subnets, fgt_bp.interfaces, fgt_index
+                az_subnets, appliance_bp.interfaces, appliance_idx
             )
 
-            resolved_fgt = ResolvedFortiGate(
-                name=f"{params.project_name}-fgt-{fgt_bp.role}",
-                role=fgt_bp.role,
-                instance_type=design.fortigate_instance_type,
-                availability_zone=fgt_az,
+            resolved_appliance = ResolvedAppliance(
+                name=f"{params.project_name}-appliance-{appliance_bp.role}",
+                role=appliance_bp.role,
+                instance_type=design.appliance_instance_type,
+                availability_zone=appliance_az,
                 interfaces=interfaces,
             )
-            resolved_fgts.append(resolved_fgt)
+            resolved_appliances.append(resolved_appliance)
 
             logger.debug(
-                "Resolved FortiGate role=%s az=%s with %d interfaces",
-                fgt_bp.role,
-                fgt_az,
+                "Resolved Appliance role=%s az=%s with %d interfaces",
+                appliance_bp.role,
+                appliance_az,
                 len(interfaces),
             )
 
@@ -163,7 +163,7 @@ class ParameterResolver:
         tags = {
             "Project": params.project_name,
             "Environment": params.environment,
-            "ManagedBy": "ai-lcm",
+            "ManagedBy": "ai-deploy",
             "DeploymentPattern": design.deployment_pattern,
             "RequirementsHash": req_hash,
         }
@@ -174,7 +174,7 @@ class ParameterResolver:
             region=params.aws_region,
             availability_zones=azs,
             vpcs=resolved_vpcs,
-            fortigate_instances=resolved_fgts,
+            appliance_instances=resolved_appliances,
             code_template_s3_prefix=(
                 design.template_s3_prefix if design.has_code_template else None
             ),
@@ -187,9 +187,9 @@ class ParameterResolver:
         )
 
         logger.info(
-            "Parameter resolution complete: %d VPCs, %d FortiGates, %d AZs",
+            "Parameter resolution complete: %d VPCs, %d Appliances, %d AZs",
             len(resolved.vpcs),
-            len(resolved.fortigate_instances),
+            len(resolved.appliance_instances),
             len(resolved.availability_zones),
         )
         return resolved
@@ -287,19 +287,19 @@ class ParameterResolver:
         self,
         subnets: list[SubnetSpec],
         interface_bps: list[InterfaceBlueprint],
-        fgt_index: int,
+        appliance_idx: int,
     ) -> list[ResolvedInterface]:
-        """Assign IPs to FortiGate interfaces based on subnet roles.
+        """Assign IPs to Appliance interfaces based on subnet roles.
 
         Each interface blueprint references a subnet_role. The matching
-        subnet is found and an IP is assigned at offset ``10 + fgt_index``
-        from the subnet's network address (so the first FortiGate gets .11,
+        subnet is found and an IP is assigned at offset ``10 + appliance_idx``
+        from the subnet's network address (so the first Appliance gets .11,
         the second .12, etc.).
 
         Args:
             subnets: Available subnets for this VPC and AZ.
-            interface_bps: Interface blueprints from the FortiGate topology.
-            fgt_index: Zero-based index of this FortiGate within its VPC role.
+            interface_bps: Interface blueprints from the Appliance topology.
+            appliance_idx: Zero-based index of this Appliance within its VPC role.
 
         Returns:
             List of ResolvedInterface with assigned IPs.
@@ -327,9 +327,9 @@ class ParameterResolver:
                     f"{sorted(subnet_by_role.keys())}"
                 )
 
-            # Compute IP: subnet network address + 10 + fgt_index
+            # Compute IP: subnet network address + 10 + appliance_idx
             subnet_network = ipaddress.ip_network(subnet.cidr, strict=False)
-            ip_offset = 10 + fgt_index
+            ip_offset = 10 + appliance_idx
             private_ip = str(subnet_network.network_address + ip_offset)
 
             # Verify the IP falls within the subnet
@@ -440,6 +440,6 @@ class ParameterResolver:
             if vpc_bp.role == vpc_role:
                 return vpc_bp
         raise ValueError(
-            f"FortiGate references vpc_role '{vpc_role}' but no VPC blueprint "
+            f"Appliance references vpc_role '{vpc_role}' but no VPC blueprint "
             f"has that role. Available: {[v.role for v in vpc_topology]}"
         )

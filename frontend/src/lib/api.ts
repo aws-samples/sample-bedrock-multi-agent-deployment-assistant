@@ -12,7 +12,14 @@ import type {
   ProjectState,
 } from "./types";
 
+import { getStoredToken } from "./auth";
+
 const API = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+
+function authHeaders(): Record<string, string> {
+  const token = getStoredToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 function sanitizeApiError(text: string, status: number): string {
   if (status === 503) return "The AI service is temporarily unavailable. Please retry shortly.";
@@ -45,7 +52,10 @@ async function request<T>(
   try {
     res = await fetch(`${API}${path}`, {
       method: resolvedMethod,
-      headers: body ? { "Content-Type": "application/json" } : undefined,
+      headers: {
+        ...(body ? { "Content-Type": "application/json" } : {}),
+        ...authHeaders(),
+      },
       body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -124,7 +134,7 @@ async function fetchSSEStream(
 ): Promise<ReadableStreamDefaultReader<Uint8Array>> {
   const res = await fetch(`${API}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
     signal,
   });
@@ -297,58 +307,27 @@ export async function invokeInterviewChat(
 }
 
 
-export async function submitDocsTask(
+export function submitDocsTask(
   tenantId = "default",
   projectId = "default",
 ): Promise<DocsTaskResponse> {
-  const res = await fetch(`${API}${withTenant("/api/docs/submit", tenantId)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ project_id: projectId }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(sanitizeApiError(text, res.status));
-  }
-
-  return res.json() as Promise<DocsTaskResponse>;
+  return request(withTenant("/api/docs/submit", tenantId), { project_id: projectId });
 }
 
-
-export async function getDocsTask(
+export function getDocsTask(
   taskId: string,
   tenantId = "default",
 ): Promise<DocsTaskResponse> {
-  const res = await fetch(
-    `${API}${withTenant(`/api/docs/task/${taskId}`, tenantId)}`,
-    { headers: { "Content-Type": "application/json" } },
-  );
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(sanitizeApiError(text, res.status));
-  }
-
-  return res.json() as Promise<DocsTaskResponse>;
+  return request(withTenant(`/api/docs/task/${encodeURIComponent(taskId)}`, tenantId));
 }
 
-
-export async function regenerateDocsSection(
+export function regenerateDocsSection(
   projectId: string,
   section: string,
   tenantId = "default",
 ): Promise<RegenerateDocsSectionResponse> {
-  const res = await fetch(`${API}${withTenant("/api/docs/regenerate-section", tenantId)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ project_id: projectId, section }),
+  return request(withTenant("/api/docs/regenerate-section", tenantId), {
+    project_id: projectId,
+    section,
   });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(sanitizeApiError(text, res.status));
-  }
-
-  return res.json() as Promise<RegenerateDocsSectionResponse>;
 }

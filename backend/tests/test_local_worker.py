@@ -4,7 +4,7 @@ import time
 from unittest.mock import MagicMock, patch
 
 
-from src.models.requirements import InterviewOutput, RoutingProtocol, UseCases
+from src.models.requirements import InterviewOutput, UseCases
 
 
 # ---------------------------------------------------------------------------
@@ -17,25 +17,27 @@ class TestBuildAgentPrompt:
         from src.services.design_processing import build_agent_prompt
 
         reqs = InterviewOutput(
-            use_cases=[UseCases.SD_WAN],
-            cloud_routing_protocol=RoutingProtocol.BGP,
-            bandwidth=1000.0,
+            use_cases=["realtime-inference"],
+            gpu_budget="moderate",
+            availability_requirement="production-single-az",
+            data_sensitivity="internal",
             compliance=["none"],
-            solution_description="Deploy SD-WAN",
+            solution_description="Deploy real-time inference",
         )
         prompt = build_agent_prompt(reqs)
         assert "RequirementsDocument" in prompt
-        assert "sd-wan" in prompt.lower()
+        assert "realtime-inference" in prompt.lower()
 
     def test_prompt_includes_feedback(self):
         from src.services.design_processing import build_agent_prompt
 
         reqs = InterviewOutput(
-            use_cases=[UseCases.SD_WAN],
-            cloud_routing_protocol=RoutingProtocol.BGP,
-            bandwidth=1000.0,
+            use_cases=["realtime-inference"],
+            gpu_budget="moderate",
+            availability_requirement="production-single-az",
+            data_sensitivity="internal",
             compliance=["none"],
-            solution_description="Deploy SD-WAN",
+            solution_description="Deploy real-time inference",
         )
         prompt = build_agent_prompt(reqs, feedback="Need more HA")
         assert "Need more HA" in prompt
@@ -43,17 +45,18 @@ class TestBuildAgentPrompt:
 
     def test_prompt_includes_previous_options(self):
         from src.models.design import (
-            DesignOption, FortiGateBlueprint, InterfaceBlueprint,
+            DesignOption, ApplianceBlueprint, InterfaceBlueprint,
             KBReference, VPCBlueprint,
         )
         from src.services.design_processing import build_agent_prompt
 
         reqs = InterviewOutput(
-            use_cases=[UseCases.SD_WAN],
-            cloud_routing_protocol=RoutingProtocol.BGP,
-            bandwidth=1000.0,
+            use_cases=["realtime-inference"],
+            gpu_budget="moderate",
+            availability_requirement="production-single-az",
+            data_sensitivity="internal",
             compliance=["none"],
-            solution_description="Deploy SD-WAN",
+            solution_description="Deploy real-time inference",
         )
         option = DesignOption(
             name="Prev Option",
@@ -65,12 +68,12 @@ class TestBuildAgentPrompt:
             security_posture_rating=2,
             complexity_rating=1,
             deployment_pattern="standalone",
-            use_case="inspection",
+            use_case="realtime-inference",
             ha_mode="none",
-            fortigate_instance_type="c5.large",
+            appliance_instance_type="g5.xlarge",
             aws_services=["VPC"],
             vpc_topology=[VPCBlueprint(role="security", subnet_roles=["public"], availability_zones=1)],
-            fortigate_topology=[FortiGateBlueprint(
+            appliance_topology=[ApplianceBlueprint(
                 role="active", vpc_role="security",
                 interfaces=[InterfaceBlueprint(port_name="port1", subnet_role="public", description="WAN")],
             )],
@@ -89,7 +92,7 @@ class TestBuildAgentPrompt:
 class TestExtractRecommendation:
     def test_extracts_from_structured_output(self):
         from src.models.design import (
-            DesignOption, DesignRecommendation, FortiGateBlueprint,
+            DesignOption, DesignRecommendation, ApplianceBlueprint,
             InterfaceBlueprint, KBReference, VPCBlueprint,
         )
         from src.services.design_processing import extract_recommendation
@@ -97,19 +100,19 @@ class TestExtractRecommendation:
         option = DesignOption(
             name="Option A",
             description="Test",
-            architecture_summary="Single FGT",
+            architecture_summary="Single GPU instance",
             pros=["Simple", "Fast"],
             cons=["No HA", "Limited"],
             estimated_monthly_cost_usd=100.0,
             security_posture_rating=2,
             complexity_rating=1,
             deployment_pattern="standalone",
-            use_case="inspection",
+            use_case="realtime-inference",
             ha_mode="none",
-            fortigate_instance_type="c5.large",
+            appliance_instance_type="g5.xlarge",
             aws_services=["VPC"],
             vpc_topology=[VPCBlueprint(role="security", subnet_roles=["public"], availability_zones=1)],
-            fortigate_topology=[FortiGateBlueprint(
+            appliance_topology=[ApplianceBlueprint(
                 role="active", vpc_role="security",
                 interfaces=[InterfaceBlueprint(port_name="port1", subnet_role="public", description="WAN")],
             )],

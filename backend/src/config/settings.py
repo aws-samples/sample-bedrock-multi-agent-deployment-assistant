@@ -30,24 +30,25 @@ class Settings(BaseSettings):
 
     # Bedrock Knowledge Base
     knowledge_base_id: Optional[str] = None
+    knowledge_base_local_path: Optional[str] = None  # Path to local KB docs (dev fallback)
 
     # Bedrock Guardrails
     guardrail_id: Optional[str] = None
     guardrail_version: str = "DRAFT"
 
     # DynamoDB
-    dynamodb_table: str = "ai-lcm-table"
+    dynamodb_table: str = "ai-deploy-table"
 
     # S3
-    s3_artifacts_bucket: str = "ai-lcm-artifacts"
-    s3_knowledge_base_bucket: str = "ai-lcm-knowledge-base"
+    s3_artifacts_bucket: str = "ai-deploy-artifacts"
+    s3_knowledge_base_bucket: str = "ai-deploy-knowledge-base"
 
     # Cognito
     cognito_user_pool_id: Optional[str] = None
     cognito_client_id: Optional[str] = None
 
     # Metrics
-    metrics_enabled: bool = True  # Publish CloudWatch custom metrics (AI-LCM namespace)
+    metrics_enabled: bool = True  # Publish CloudWatch custom metrics
 
     # Interview Plan
     interview_plan_cache_ttl_minutes: int = 30
@@ -65,8 +66,7 @@ class Settings(BaseSettings):
     # Documentation agent token limits
     docs_diagram_max_tokens: int = 16384         # Architecture diagram generation
     docs_diagram_fix_max_tokens: int = 16384     # Diagram fix attempts
-    docs_user_guide_max_tokens: int = 32768       # User guide (~3000 words with tables)
-    docs_threat_model_max_tokens: int = 32768     # STRIDE threat model (~3000 words with tables)
+    docs_user_guide_max_tokens: int = 32768       # Deployment guide (~2500 words with tables)
     docs_diagram_max_fix_attempts: int = 3       # Max diagram validation-fix iterations
 
     # Validation settings
@@ -84,7 +84,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:3000"]
     trusted_proxy: bool = False  # Trust X-Forwarded-For header (set True when behind ALB/CloudFront)
 
-    model_config = {"env_prefix": "AI_LCM_", "env_file": ".env", "extra": "ignore"}
+    model_config = {"env_prefix": "AI_DEPLOY_", "env_file": ".env", "extra": "ignore"}
 
 
 settings = Settings()
