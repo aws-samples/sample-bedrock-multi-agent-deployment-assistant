@@ -22,6 +22,19 @@ uv.lock
 # CDK synth output
 infra/cdk.out/
 
-# Test fixtures
+# Test code and fixtures
+# SAST rules generate routine false positives on test code: hardcoded credentials
+# (B105/B106) in fixtures, dynamic subprocess calls, eval-like patterns, and
+# permissive yaml loads are all common and intentional in test setup. Test code
+# does not run in production paths.
+#
+# IMPORTANT: this exclusion is for SAST only. Dependency scanners (Grype, Trivy,
+# pip-audit) MUST still cover test dependencies — they install in CI and are part
+# of the supply chain. Secret scanners (gitleaks, trufflehog) MUST also cover
+# test code — leaked real keys in fixtures are a routine incident vector.
+backend/tests/
+frontend/src/**/__tests__/
+frontend/src/test/
+infra/test/
 **/test/fixtures/
 **/__fixtures__/
