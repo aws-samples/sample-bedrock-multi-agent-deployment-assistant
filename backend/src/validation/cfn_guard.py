@@ -42,9 +42,10 @@ def validate_cfn_guard(
             delete=False, prefix="iac_guard_",
         ) as tmp:
             tmp.write(template_str)
+            tmp.flush()
             tmp_path = tmp.name
 
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 - argv is a list (no shell), guard_binary is internal-only
             [
                 guard_binary, "validate",
                 "--data", tmp_path,

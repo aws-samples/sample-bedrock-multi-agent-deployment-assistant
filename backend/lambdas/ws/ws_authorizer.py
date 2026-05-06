@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 _POOL_ID_PATTERN = re.compile(r"^[a-z]{2}-[a-z]+-[0-9]_[a-zA-Z0-9]+$")
+_AWS_REGION_PATTERN = re.compile(r"^[a-z]{2}-[a-z]+-\d+$")
 
 _jwks_cache: dict = {"data": None, "ts": 0.0}
 _jwks_cache_lock = threading.Lock()
@@ -35,11 +36,22 @@ def _get_jwks(pool_id: str, region: str) -> dict:
         if cached is not None and (time.time() - _jwks_cache["ts"]) < _JWKS_CACHE_TTL_S:
             return cached
 
+        if not _AWS_REGION_PATTERN.match(region):
+            logger.warning("Refusing JWKS fetch for invalid region: %r", region[:40])
+            return cached or {}
+
         jwks_url = f"https://cognito-idp.{region}.amazonaws.com/{pool_id}/.well-known/jwks.json"
+        # Defense in depth: even though region+pool_id are regex-validated,
+        # confirm the constructed URL still points at the expected Cognito host.
+        # Blocks any urllib scheme other than https:// and any host injection.
+        if not jwks_url.startswith("https://cognito-idp."):
+            logger.warning("Refusing JWKS fetch for non-Cognito URL")
+            return cached or {}
+
         try:
             import urllib.request
 
-            with urllib.request.urlopen(jwks_url, timeout=5) as resp:
+            with urllib.request.urlopen(jwks_url, timeout=5) as resp:  # nosec B310 - URL scheme allowlisted above
                 data = json.loads(resp.read())
                 _jwks_cache["data"] = data
                 _jwks_cache["ts"] = time.time()

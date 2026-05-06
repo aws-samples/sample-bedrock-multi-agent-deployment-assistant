@@ -117,7 +117,7 @@ class QuestionPlan(BaseModel):
         return all(
             e.status != "pending"
             for e in self.entries
-            if e.is_blocking
+            if e.is_blocking  # nosemgrep: is-function-without-parentheses - is_blocking is a Pydantic bool field
         )
 
     def all_missing_field_paths(self) -> list[str]:

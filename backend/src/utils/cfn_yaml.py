@@ -84,7 +84,9 @@ CfnDumper.add_representer(CfnTag, _cfn_tag_representer)
 
 def cfn_load(text: str):
     """Parse CloudFormation YAML preserving intrinsic function tags."""
-    return _yaml.load(text, Loader=CfnLoader)
+    # CfnLoader extends yaml.SafeLoader (see class definition above) — this is
+    # equivalent to yaml.safe_load with extra constructors for !Ref/!Sub/etc.
+    return _yaml.load(text, Loader=CfnLoader)  # nosec B506 - SafeLoader subclass
 
 
 def cfn_dump(data) -> str:

@@ -44,7 +44,7 @@ def validate_mermaid(diagram_code: str) -> tuple[bool, str]:
         return True, ""
 
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603,B607 - argv is a list, runs in container with controlled PATH
             ["node", str(_VALIDATOR_SCRIPT)],
             input=diagram_code,
             capture_output=True,

@@ -15,6 +15,7 @@ empty finding list if cfn-lint schemas are unavailable (graceful degradation).
 import importlib
 import json
 import logging
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,9 @@ logger = logging.getLogger(__name__)
 # Rule ID prefix: "SP" = spec-validator
 _LAYER = "spec"
 
+# AWS region format: <area>-<location>-<num>, e.g. us-east-1, eu-west-3, ap-southeast-2
+_AWS_REGION_RE = re.compile(r"^[a-z]{2}-[a-z]+-\d+$")
+
 
 # ---------------------------------------------------------------------------
 # Schema loading with caching
@@ -38,6 +42,9 @@ def _load_region_type_map(region: str) -> dict[str, str]:
 
     Returns an empty dict if cfn-lint schemas are unavailable.
     """
+    if not _AWS_REGION_RE.match(region):
+        logger.warning("Refusing to load schema for non-AWS-region value: %r", region)
+        return {}
     module_name = f"cfnlint.data.schemas.providers.{region.replace('-', '_')}"
     try:
         mod = importlib.import_module(module_name)

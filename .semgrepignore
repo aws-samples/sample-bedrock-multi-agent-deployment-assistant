@@ -1,0 +1,27 @@
+# Semgrep rule-level ignores for this repo.
+# Format: paths or rule IDs, one per line. Rule disables go in .semgrep/config.yaml
+# but for hosted Semgrep CI, these path-level ignores are honored.
+
+# Build artifacts and dependencies
+node_modules/
+.next/
+cdk.out/
+__pycache__/
+.venv/
+venv/
+dist/
+build/
+
+# Generated lockfiles (already covered above but explicit)
+*.lock
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+uv.lock
+
+# CDK synth output
+infra/cdk.out/
+
+# Test fixtures
+**/test/fixtures/
+**/__fixtures__/

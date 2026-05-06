@@ -5,19 +5,19 @@
 		"infra": "bin/ai-deploy.js"
 	},
 	"scripts": {
-		"build": "tsc",
-		"watch": "tsc -w",
-		"test": "jest",
+		"build": "tsc --noEmit",
+		"watch": "tsc -w --noEmit",
+		"test": "vitest run",
+		"test:watch": "vitest",
 		"cdk": "cdk"
 	},
 	"devDependencies": {
-		"@types/jest": "^30",
 		"@types/node": "^24.10.1",
+		"@vitest/coverage-v8": "^4.1.5",
 		"aws-cdk": "2.1121.0",
-		"jest": "^30",
-		"ts-jest": "^29",
 		"ts-node": "^10.9.2",
-		"typescript": "~5.9.3"
+		"typescript": "~5.9.3",
+		"vitest": "^4.1.5"
 	},
 	"dependencies": {
 		"aws-cdk-lib": "^2.252.0",

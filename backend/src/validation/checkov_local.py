@@ -47,7 +47,7 @@ def validate_checkov(
         template_path = os.path.join(
             tmp_dir, f"template{detect_format_suffix(template_str)}"
         )
-        with open(template_path, "w") as f:
+        with open(template_path, "w", encoding="utf-8") as f:
             f.write(template_str)
 
         runner_filter = RunnerFilter(
@@ -95,7 +95,7 @@ def _classify_severity(check_result) -> str:
             name = severity.name.upper()
             if name in ("CRITICAL", "HIGH"):
                 return "error"
-    except Exception:
+    except Exception:  # nosec B110 - checkov result schema varies across versions; default to "warning"
         pass
     return "warning"
 
@@ -106,6 +106,6 @@ def _extract_line(check_result) -> int | None:
         file_line_range = getattr(check_result, "file_line_range", None)
         if file_line_range and len(file_line_range) >= 1:
             return file_line_range[0]
-    except Exception:
+    except Exception:  # nosec B110 - checkov result schema varies across versions; line number is optional
         pass
     return None

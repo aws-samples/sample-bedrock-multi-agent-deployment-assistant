@@ -11,6 +11,10 @@ export class CognitoConstruct extends Construct {
 
     this.userPool = new cognito.UserPool(this, "AiDeployUserPool", {
       userPoolName: "ai-deploy-user-pool",
+      // Plus tier enables advanced security: compromised credentials check,
+      // adaptive auth, account takeover protection. Required for the
+      // standardThreatProtectionMode: FULL_FUNCTION setting below.
+      featurePlan: cognito.FeaturePlan.PLUS,
       selfSignUpEnabled: false,
       signInAliases: { email: true },
       autoVerify: { email: true },

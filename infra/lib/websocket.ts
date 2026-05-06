@@ -97,6 +97,28 @@ export class WebSocketConstruct extends Construct {
       true,
     );
 
+    // APIG4 on $disconnect and subscribe routes:
+    // API Gateway WebSocket APIs only support authorizers on $connect (AWS platform
+    // constraint — confirmed in the apigatewayv2 docs). Identity established at
+    // $connect propagates via event.requestContext.authorizer to all subsequent
+    // route handlers. The subscribe handler enforces tenant isolation by reading
+    // auth_tenant_id from the connection record (see backend/lambdas/ws/ws_subscribe.py
+    // tenant-mismatch check). $disconnect carries no payload and only signals
+    // teardown of the already-authenticated connection.
+    NagSuppressions.addResourceSuppressions(
+      this.api,
+      [
+        {
+          id: "AwsSolutions-APIG4",
+          reason:
+            "WebSocket APIs only support authorizers on $connect (AWS platform constraint). " +
+            "Auth context propagates via requestContext.authorizer; subscribe handler " +
+            "validates tenant_id against the connection's auth_tenant_id.",
+        },
+      ],
+      true,
+    );
+
     // ---------------------------------------------------------------------------
     // Outputs
     // ---------------------------------------------------------------------------

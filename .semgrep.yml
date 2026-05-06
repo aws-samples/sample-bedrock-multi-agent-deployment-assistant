@@ -1,0 +1,51 @@
+# Project-level Semgrep rule overrides.
+# Documents intentional rule-level suppressions with rationale for audit.
+#
+# To run locally: semgrep --config auto --config .semgrep.yml
+# Per-line suppressions live as `# nosemgrep: <rule>` comments next to the code;
+# this file is for rules that are noise project-wide.
+
+rules:
+  # ----- Disabled project-wide -----
+  #
+  # 1. logging-error-without-handling
+  #    Default FastAPI/worker pattern is `try: ... except Exception: logger.exception(...); raise`.
+  #    The exception is propagated to the framework's error handler, not silently swallowed.
+  #    The rule cannot distinguish "log + re-raise" from "log + swallow"; we keep
+  #    `.exception` for stack-trace fidelity in CloudWatch.
+  #
+  # 2. string-concat-in-list
+  #    predefined_layers.py uses parenthesized implicit-string-concatenation as a
+  #    legibility pattern for long prompt strings. The strings are inside a tuple
+  #    constructor `(...)`, not a list `[...]` — semgrep's rule can't tell them apart.
+  #
+  # 3. is-function-without-parentheses
+  #    Repo uses `@property` and Pydantic field accessors named `is_*`. Adding `()`
+  #    would break the code. The rule is a heuristic that has near-100% FP rate
+  #    in typed Python code with property discipline.
+  #
+  # 4. jsx-not-internationalized
+  #    Internal-use AWS deployment tool, English-only by design. Not in scope.
+  #
+  # 5. package-dependencies-check
+  #    Mitigated by committed lockfiles (pnpm-lock.yaml, package-lock.json, uv.lock)
+  #    rather than pinning manifest ranges.
+
+  - id: logging-error-without-handling-disabled
+    message: disabled-project-wide
+    severity: INFO
+    languages: [python]
+    pattern: __DISABLED__
+    paths:
+      include: ["__never__"]
+
+# NOTE: the proper way to disable Semgrep registry rules is via the CI dashboard
+# or `--disable-rule` flags. This file documents the rationale; the actual
+# disabling happens in CI config (e.g. `.github/workflows/security.yml`):
+#
+#   semgrep ci \
+#     --disable-rule jsx-not-internationalized \
+#     --disable-rule logging-error-without-handling \
+#     --disable-rule string-concat-in-list \
+#     --disable-rule is-function-without-parentheses \
+#     --disable-rule package-dependencies-check

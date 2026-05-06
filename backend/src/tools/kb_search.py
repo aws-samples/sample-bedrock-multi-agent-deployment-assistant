@@ -53,7 +53,7 @@ def kb_search(query: str, max_results: int = 5) -> str:
     logger.info("kb_search query=%r max_results=%d", query, max_results)
 
     provider = get_kb_provider()
-    if not provider.is_available:
+    if not provider.is_available:  # nosemgrep: is-function-without-parentheses - is_available is a @property
         logger.info("kb_search: knowledge base not configured, skipping")
         return (
             "Knowledge base not configured. "
@@ -92,7 +92,7 @@ def kb_search_filtered(
     Returns an empty list when no provider is available.
     """
     provider = get_kb_provider()
-    if not provider.is_available:
+    if not provider.is_available:  # nosemgrep: is-function-without-parentheses - is_available is a @property
         return []
 
     logger.info(

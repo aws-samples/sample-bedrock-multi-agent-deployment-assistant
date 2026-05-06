@@ -38,6 +38,7 @@ def validate_cfn_lint(template_str: str, region: str = "us-east-1") -> list[Vali
             delete=False, prefix="iac_validate_",
         ) as tmp:
             tmp.write(template_str)
+            tmp.flush()
             tmp_path = tmp.name
 
         # Run cfn-lint using its Python API
@@ -113,6 +114,6 @@ def _extract_resource(match) -> str | None:
             parts = list(match.path)
             if len(parts) >= 2 and parts[0] == "Resources":
                 return str(parts[1])
-    except Exception:
+    except Exception:  # nosec B110 - cfn-lint match schema varies across versions; resource ID is optional metadata
         pass
     return None

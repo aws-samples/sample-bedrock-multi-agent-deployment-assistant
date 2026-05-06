@@ -148,13 +148,16 @@ export class LambdaConstruct extends Construct {
           id: "AwsSolutions-IAM5",
           reason:
             "Bedrock foundation model ARN uses anthropic.claude-* wildcard to support Sonnet + Haiku model variants. " +
-            "Region-scoped to deployment region. " +
+            "Bedrock knowledge-base/* wildcard scoped to account+region; deferred refactor to grant against the actual KB ARN — see README. " +
             "DynamoDB and S3 wildcards are scoped to specific resources. " +
             "SQS permissions are auto-granted by CDK event source mapping. " +
             "CloudWatch PutMetricData requires Resource::* but is scoped by namespace condition.",
           appliesTo: [
             {
               regex: "/^Resource::arn:aws:bedrock:.+::foundation-model/anthropic\\.claude-\\*$/",
+            },
+            {
+              regex: "/^Resource::arn:aws:bedrock:.+:.+:knowledge-base/\\*$/",
             },
             "Resource::*",
             `Resource::<${cdk.Stack.of(this).getLogicalId(props.table.node.defaultChild as cdk.CfnElement)}.Arn>/index/*`,
@@ -170,10 +173,12 @@ export class LambdaConstruct extends Construct {
         {
           id: "AwsSolutions-IAM4",
           reason:
-            "Lambda basic execution role (AWSLambdaBasicExecutionRole) is required for CloudWatch Logs. " +
-            "This is a CDK-managed policy attached automatically.",
+            "AWS-managed Lambda execution policies are required for canonical platform integrations: " +
+            "AWSLambdaBasicExecutionRole for CloudWatch Logs, AWSLambdaVPCAccessExecutionRole for ENI lifecycle. " +
+            "Both are attached automatically by CDK based on the Lambda's VPC configuration.",
           appliesTo: [
             "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+            "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole",
           ],
         },
       ],
@@ -276,13 +281,16 @@ export class LambdaConstruct extends Construct {
           id: "AwsSolutions-IAM5",
           reason:
             "Bedrock foundation model ARN uses anthropic.claude-* wildcard to support Sonnet + Haiku model variants. " +
-            "Region-scoped to deployment region. " +
+            "Bedrock knowledge-base/* wildcard scoped to account+region; deferred refactor to grant against the actual KB ARN — see README. " +
             "DynamoDB and S3 wildcards are scoped to specific resources. " +
             "SQS permissions are auto-granted by CDK event source mapping. " +
             "CloudWatch PutMetricData requires Resource::* but is scoped by namespace condition.",
           appliesTo: [
             {
               regex: "/^Resource::arn:aws:bedrock:.+::foundation-model/anthropic\\.claude-\\*$/",
+            },
+            {
+              regex: "/^Resource::arn:aws:bedrock:.+:.+:knowledge-base/\\*$/",
             },
             "Resource::*",
             `Resource::<${cdk.Stack.of(this).getLogicalId(props.table.node.defaultChild as cdk.CfnElement)}.Arn>/index/*`,
@@ -300,10 +308,12 @@ export class LambdaConstruct extends Construct {
         {
           id: "AwsSolutions-IAM4",
           reason:
-            "Lambda basic execution role (AWSLambdaBasicExecutionRole) is required for CloudWatch Logs. " +
-            "This is a CDK-managed policy attached automatically.",
+            "AWS-managed Lambda execution policies are required for canonical platform integrations: " +
+            "AWSLambdaBasicExecutionRole for CloudWatch Logs, AWSLambdaVPCAccessExecutionRole for ENI lifecycle. " +
+            "Both are attached automatically by CDK based on the Lambda's VPC configuration.",
           appliesTo: [
             "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+            "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole",
           ],
         },
       ],
@@ -405,13 +415,16 @@ export class LambdaConstruct extends Construct {
           id: "AwsSolutions-IAM5",
           reason:
             "Bedrock foundation model ARN uses anthropic.claude-* wildcard to support Sonnet + Haiku model variants. " +
-            "Region-scoped to deployment region. " +
+            "Bedrock knowledge-base/* wildcard scoped to account+region; deferred refactor to grant against the actual KB ARN — see README. " +
             "DynamoDB and S3 wildcards are scoped to specific resources. " +
             "SQS permissions are auto-granted by CDK event source mapping. " +
             "CloudWatch PutMetricData requires Resource::* but is scoped by namespace condition.",
           appliesTo: [
             {
               regex: "/^Resource::arn:aws:bedrock:.+::foundation-model/anthropic\\.claude-\\*$/",
+            },
+            {
+              regex: "/^Resource::arn:aws:bedrock:.+:.+:knowledge-base/\\*$/",
             },
             "Resource::*",
             `Resource::<${cdk.Stack.of(this).getLogicalId(props.table.node.defaultChild as cdk.CfnElement)}.Arn>/index/*`,
@@ -427,10 +440,12 @@ export class LambdaConstruct extends Construct {
         {
           id: "AwsSolutions-IAM4",
           reason:
-            "Lambda basic execution role (AWSLambdaBasicExecutionRole) is required for CloudWatch Logs. " +
-            "This is a CDK-managed policy attached automatically.",
+            "AWS-managed Lambda execution policies are required for canonical platform integrations: " +
+            "AWSLambdaBasicExecutionRole for CloudWatch Logs, AWSLambdaVPCAccessExecutionRole for ENI lifecycle. " +
+            "Both are attached automatically by CDK based on the Lambda's VPC configuration.",
           appliesTo: [
             "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+            "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole",
           ],
         },
       ],

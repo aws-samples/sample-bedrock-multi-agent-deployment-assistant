@@ -44,7 +44,9 @@ COPY --chown=appuser:appuser entrypoint.sh ./
 
 # Mermaid diagram validator (Node.js) — used by documentation agent
 COPY --chown=appuser:appuser tools/validate-mermaid/ tools/validate-mermaid/
-RUN cd tools/validate-mermaid && npm ci --omit=dev && npm cache clean --force
+WORKDIR /app/tools/validate-mermaid
+RUN npm ci --omit=dev && npm cache clean --force
+WORKDIR /app
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \

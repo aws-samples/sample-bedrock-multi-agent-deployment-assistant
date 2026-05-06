@@ -83,11 +83,16 @@ export class EcsConstruct extends Construct {
           id: "AwsSolutions-IAM5",
           reason:
             "Bedrock foundation model ARN uses anthropic.claude-* wildcard to support Sonnet + Haiku model variants. " +
-            "Region-scoped to deployment region. " +
-            "DynamoDB and S3 wildcards are scoped to specific resources.",
+            "Bedrock knowledge-base/* wildcard scoped to account+region; deferred refactor to grant against the actual KB ARN — see README. " +
+            "DynamoDB and S3 wildcards are scoped to specific resources. " +
+            "kms:GenerateDataKey*/ReEncrypt* action wildcards expand within the kms: namespace and " +
+            "are bound to the customer-managed key resource on the same statement.",
           appliesTo: [
             {
               regex: "/^Resource::arn:aws:bedrock:.+::foundation-model/anthropic\\.claude-\\*$/",
+            },
+            {
+              regex: "/^Resource::arn:aws:bedrock:.+:.+:knowledge-base/\\*$/",
             },
             "Resource::*",
             `Resource::<${cdk.Stack.of(this).getLogicalId(props.table.node.defaultChild as cdk.CfnElement)}.Arn>/index/*`,
@@ -98,6 +103,8 @@ export class EcsConstruct extends Construct {
             "Action::s3:GetBucket*",
             "Action::s3:GetObject*",
             "Action::s3:List*",
+            "Action::kms:GenerateDataKey*",
+            "Action::kms:ReEncrypt*",
           ],
         },
       ],

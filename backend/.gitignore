@@ -16,10 +16,6 @@ build/
 *.egg-info/
 *.egg
 
-uv.lock
-*-lock.json
-tools/validate-mermaid/package-lock.json
-
 # Environment variables — .env contains secrets, only .env.sample is tracked
 .env
 .env.*

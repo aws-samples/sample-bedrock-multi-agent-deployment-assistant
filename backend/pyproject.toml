@@ -1,7 +1,7 @@
 [project]
 name = "backend"
 version = "0.1.0"
-description = "Add your description here"
+description = "backend repository for ai-deploy-assist"
 requires-python = "~=3.12.0"
 dependencies = [
     "boto3>=1.42.48",
@@ -28,3 +28,11 @@ dev = [
     "pytest-asyncio>=1.3.0",
     "ruff>=0.15.0",
 ]
+
+[tool.bandit]
+# Per-call suppressions live as `# nosec <RULE>` next to the code.
+# This block records the project-wide rationale for audit.
+exclude_dirs = ["tests", "knowledge-base", ".venv"]
+# B101 (assert): pytest tests legitimately use assert
+# B404 (subprocess import): we run cfn-guard, cfn-lint, mermaid validators as subprocesses by design
+skips = ["B101", "B404"]

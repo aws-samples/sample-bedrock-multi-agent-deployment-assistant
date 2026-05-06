@@ -1,6 +1,9 @@
 # ---- Stage 1: Builder — install dependencies with uv ----
 # Mirrors the production Dockerfile pattern for deterministic, cached builds.
 # Pinned to SHA256 digest for supply chain security.
+#
+# checkov:skip=CKV_DOCKER_2: Lambda manages container lifecycle/health; HEALTHCHECK is ignored by the runtime
+# checkov:skip=CKV_DOCKER_3: Lambda runtime image runs as the platform-managed `sbx_user1051`; explicit USER is rejected by Lambda
 FROM python@sha256:73dbd1a2ad74137451593a8ac30f7bdd0f5010fc05fb34644190cffa7696bbf3 AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:0.7 /uv /usr/local/bin/uv
@@ -44,7 +47,9 @@ COPY src/ ${LAMBDA_TASK_ROOT}/src/
 
 # Mermaid diagram validator (Node.js)
 COPY tools/validate-mermaid/ ${LAMBDA_TASK_ROOT}/tools/validate-mermaid/
-RUN cd ${LAMBDA_TASK_ROOT}/tools/validate-mermaid && npm ci --omit=dev && npm cache clean --force
+WORKDIR ${LAMBDA_TASK_ROOT}/tools/validate-mermaid
+RUN npm ci --omit=dev && npm cache clean --force
+WORKDIR ${LAMBDA_TASK_ROOT}
 
 # Default handler for design worker (overridden per Lambda function in CDK)
 CMD ["src.workers.design_worker.handler"]

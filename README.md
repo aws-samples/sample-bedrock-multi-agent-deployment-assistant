@@ -1,5 +1,17 @@
 # AI Deploy Assistant
 
+> **⚠️ Sample / Illustration repository — NOT production-ready.**
+>
+> This codebase is published as a reference implementation to illustrate a
+> multi-agent deployment-assistant pipeline. It is **not** intended for direct
+> production use. Before deploying anywhere beyond a sandbox, you are expected to
+> conduct your own security review, complete the deferred posture items listed
+> in [Security & Known Posture Items](#security--known-posture-items), harden
+> IAM scoping, validate the prompt-injection surface, and add the operational
+> controls (auth, audit, rate limiting, observability, DR) appropriate to your
+> environment. The maintainers make no warranty as to fitness for any
+> particular purpose.
+
 A generalized, AI-powered product deployment assistant. Uses a multi-agent pipeline (Strands + Amazon Bedrock) to guide users through deploying any product catalog on AWS: gathering requirements via interview, generating architecture designs, producing Infrastructure-as-Code (CloudFormation), and creating documentation.
 
 The system is **product-agnostic** — the product catalog, interview fields, deployment patterns, and validation rules are all driven by configuration files (`config.yaml` + `catalog.lock.yaml`), not hardcoded logic.
@@ -133,6 +145,50 @@ knowledge-base/
 ```
 
 The local KB provider indexes these files and performs TF-IDF text search with the same metadata filtering as Bedrock. Set `AI_DEPLOY_KNOWLEDGE_BASE_ID=""` to use local mode.
+
+## Security & Known Posture Items
+
+This repository is a sample. The list below tracks known posture items that are
+intentionally deferred or suppressed with rationale. **Treat this as a starting
+point for your own security review, not a sign-off.**
+
+### Known deferred refactors
+
+- **Bedrock Knowledge Base ARN scope** — The Lambda and ECS task IAM grants
+  for `bedrock-agent-runtime:Retrieve` / `RetrieveAndGenerate` use a
+  `knowledge-base/*` resource wildcard scoped to the deployment account+region.
+  This is because the policy is generated before the KB ID is known. The
+  recommended hardening is to thread the actual KB ID (or its CfnOutput-derived
+  ARN) into the IAM grant so the wildcard is replaced with `knowledge-base/<id>`.
+  Findings are suppressed in `infra/lib/lambda.ts` and `infra/lib/ecs.ts`
+  with reference to this section. Tracked as a follow-up.
+
+### Suppressed cdk-nag findings (with rationale at the suppression site)
+
+- `AwsSolutions-APIG4` on WebSocket `$disconnect` and `subscribe` routes —
+  API Gateway WebSocket APIs only accept authorizers on `$connect` (AWS
+  platform constraint). Auth context propagates via `requestContext.authorizer`
+  and the subscribe handler enforces tenant isolation. See
+  `infra/lib/websocket.ts` and `backend/lambdas/ws/ws_subscribe.py`.
+- `AwsSolutions-IAM4` on Lambda service roles — the AWS-managed
+  `AWSLambdaBasicExecutionRole` and `AWSLambdaVPCAccessExecutionRole` are the
+  canonical platform integrations. See `infra/lib/lambda.ts`.
+- `AwsSolutions-IAM5` action wildcards on `kms:GenerateDataKey*` and
+  `kms:ReEncrypt*` — these expand within the `kms:` namespace only and are
+  resource-bound to the customer-managed key on the same statement. See
+  `infra/lib/ecs.ts`.
+
+### Other posture notes
+
+- **Prompt-injection surface:** the design and IaC agents consume free-text
+  user input and KB-derived content; before any external exposure you should
+  add output filtering, response length caps, and review the agent tool
+  surface for unintended side effects.
+- **Lock files are committed** (`pnpm-lock.yaml`, `package-lock.json`,
+  `uv.lock`). CI must use `npm ci` / `pnpm install --frozen-lockfile` /
+  `uv sync --frozen` to enforce them.
+- **SAST suppressions** are documented inline (`# nosec`, `# nosemgrep`) with
+  rationale; see `.semgrep.yml` for the project-wide rule disables.
 
 ## Deployment
 

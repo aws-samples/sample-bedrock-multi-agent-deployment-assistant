@@ -233,7 +233,7 @@ class LocalKBProvider:
         if self._loaded:
             return
 
-        if not self.is_available:
+        if not self.is_available:  # nosemgrep: is-function-without-parentheses - is_available is a @property
             logger.warning("Local KB path does not exist: %s", self._base_path)
             self._loaded = True
             return
