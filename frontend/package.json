@@ -19,6 +19,11 @@
     "react-syntax-highlighter": "^16.1.0",
     "remark-gfm": "^4.0.1"
   },
+  "pnpm": {
+    "overrides": {
+      "minimatch": ">=10.0.1"
+    }
+  },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
