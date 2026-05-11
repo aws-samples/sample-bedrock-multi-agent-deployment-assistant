@@ -193,3 +193,9 @@ point for your own security review, not a sign-off.**
 ## Deployment
 
 See [AWS Deployment Guide](docs/aws-deployment.md) for CDK-based production deployment.
+
+## Authors
+
+[Ryan Dsilva](https://www.linkedin.com/in/ryan-dsilva/), AI Acceleration Architect at AWS
+
+[Ragib Ahsan](https://www.linkedin.com/in/ragibmahsan/), AI Acceleration Architect II at AWS
