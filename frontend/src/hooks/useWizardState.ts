@@ -26,6 +26,7 @@ import {
   regenerateDocsSection,
   getProjectState,
 } from "@/lib/api";
+import { usePollTask } from "@/hooks/usePollTask";
 import { useWebSocket } from "@/hooks/useWebSocket";
 
 const DESIGN_POLL_INTERVAL_MS = 3_000;
@@ -388,118 +389,107 @@ export function useWizardState(
     stateRef.current = state;
   }, [state]);
 
-  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const docsPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wsConnectedRef = useRef(false);
 
-  useEffect(() => {
-    return () => {
-      if (pollTimerRef.current) {
-        clearTimeout(pollTimerRef.current);
-      }
-      if (docsPollTimerRef.current) {
-        clearTimeout(docsPollTimerRef.current);
-      }
-    };
-  }, []);
-
   // ---------------------------------------------------------------------------
-  // Design task polling
+  // Design task polling (via usePollTask)
   // ---------------------------------------------------------------------------
 
-  const pollDesignTaskRef = useRef<(taskId: string, attempt?: number) => Promise<void>>();
-  const pollDesignTask = useCallback(
-    async (taskId: string, attempt = 0) => {
-      // WebSocket connected since polling started — let it handle updates
-      if (wsConnectedRef.current) return;
-
-      if (attempt >= DESIGN_POLL_MAX_ATTEMPTS) {
-        dispatch({
-          type: "DESIGN_TASK_UPDATE",
-          status: "failed",
-          error: "Design task timed out. Please try again.",
-        });
-        return;
-      }
-
-      try {
-        const task: DesignTaskResponse = await getDesignTask(taskId, tenantId);
-
-        if (task.status === "completed" && task.result) {
-          dispatch({
-            type: "DESIGN_TASK_UPDATE",
-            status: "completed",
-            recommendation: task.result,
-          });
-          return;
-        }
-
-        if (task.status === "failed") {
-          dispatch({
-            type: "DESIGN_TASK_UPDATE",
-            status: "failed",
-            error: task.error ?? "Design task failed",
-          });
-          return;
-        }
-
-        // Still queued or processing -- update status and continue polling
-        dispatch({
-          type: "DESIGN_TASK_UPDATE",
-          status: task.status,
-        });
-
-        pollTimerRef.current = setTimeout(() => {
-          pollDesignTaskRef.current?.(taskId, attempt + 1);
-        }, DESIGN_POLL_INTERVAL_MS);
-      } catch (err) {
-        const error = err instanceof Error ? err.message : "Failed to check design status";
-        dispatch({
-          type: "DESIGN_TASK_UPDATE",
-          status: "failed",
-          error,
-        });
-      }
+  const { startPolling: pollDesignTask, stopPolling: stopDesignPolling } = usePollTask<DesignTaskResponse>({
+    fetchFn: (taskId) => getDesignTask(taskId, tenantId),
+    isComplete: (task) => task.status === "completed" && !!task.result,
+    isFailed: (task) => task.status === "failed",
+    onComplete: (task) => {
+      dispatch({ type: "DESIGN_TASK_UPDATE", status: "completed", recommendation: task.result });
     },
-    [tenantId],
-  );
-  useEffect(() => { pollDesignTaskRef.current = pollDesignTask; });
+    onFailed: (task) => {
+      dispatch({ type: "DESIGN_TASK_UPDATE", status: "failed", error: task.error ?? "Design task failed" });
+    },
+    onProgress: (task) => {
+      dispatch({ type: "DESIGN_TASK_UPDATE", status: task.status });
+    },
+    onTimeout: () => {
+      dispatch({ type: "DESIGN_TASK_UPDATE", status: "failed", error: "Design task timed out. Please try again." });
+    },
+    onError: (error) => {
+      dispatch({ type: "DESIGN_TASK_UPDATE", status: "failed", error });
+    },
+    isWsConnected: () => wsConnectedRef.current,
+    intervalMs: DESIGN_POLL_INTERVAL_MS,
+    maxAttempts: DESIGN_POLL_MAX_ATTEMPTS,
+  });
+
+  // ---------------------------------------------------------------------------
+  // Docs task polling (via usePollTask)
+  // ---------------------------------------------------------------------------
+
+  const { startPolling: pollDocsTask, stopPolling: stopDocsPolling } = usePollTask<{ status: string; result?: unknown; error?: string }>({
+    fetchFn: (taskId) => getDocsTask(taskId, tenantId),
+    isComplete: (task) => task.status === "completed" && !!task.result,
+    isFailed: (task) => task.status === "failed",
+    onComplete: (task) => {
+      dispatch({ type: "DOCS_TASK_UPDATE", status: "completed", docs: task.result as DocumentationOutput });
+    },
+    onFailed: (task) => {
+      dispatch({ type: "DOCS_TASK_UPDATE", status: "failed", error: task.error ?? "Documentation task failed" });
+    },
+    onProgress: (task) => {
+      dispatch({ type: "DOCS_TASK_UPDATE", status: task.status as DocsTaskStatus });
+    },
+    onTimeout: () => {
+      dispatch({ type: "DOCS_TASK_UPDATE", status: "failed", error: "Documentation task timed out. Please try again." });
+    },
+    onError: (error) => {
+      dispatch({ type: "DOCS_TASK_UPDATE", status: "failed", error });
+    },
+    isWsConnected: () => wsConnectedRef.current,
+    intervalMs: DOCS_POLL_INTERVAL_MS,
+    maxAttempts: DOCS_POLL_MAX_ATTEMPTS,
+  });
 
   // ---------------------------------------------------------------------------
   // WebSocket for real-time design task updates
   // ---------------------------------------------------------------------------
 
   const handleDesignComplete = useCallback(
-    (result: unknown) => {
-      // Clear any active polling
-      if (pollTimerRef.current) {
-        clearTimeout(pollTimerRef.current);
-        pollTimerRef.current = null;
+    async (result: unknown) => {
+      stopDesignPolling();
+      if (result) {
+        dispatch({
+          type: "DESIGN_TASK_UPDATE",
+          status: "completed",
+          recommendation: result as DesignRecommendation,
+        });
+        return;
       }
-
-      dispatch({
-        type: "DESIGN_TASK_UPDATE",
-        status: "completed",
-        recommendation: result as DesignRecommendation,
-      });
+      const taskId = stateRef.current.designTaskId;
+      if (!taskId) return;
+      try {
+        const task = await getDesignTask(taskId, tenantId);
+        if (task.result) {
+          dispatch({
+            type: "DESIGN_TASK_UPDATE",
+            status: "completed",
+            recommendation: task.result,
+          });
+        }
+      } catch {
+        pollDesignTask(taskId);
+      }
     },
-    [],
+    [stopDesignPolling, tenantId, pollDesignTask],
   );
 
   const handleDesignFailed = useCallback(
     (error: string) => {
-      if (pollTimerRef.current) {
-        clearTimeout(pollTimerRef.current);
-        pollTimerRef.current = null;
-      }
-
+      stopDesignPolling();
       dispatch({
         type: "DESIGN_TASK_UPDATE",
         status: "failed",
         error,
       });
     },
-    [],
+    [stopDesignPolling],
   );
 
   // ---------------------------------------------------------------------------
@@ -570,32 +560,26 @@ export function useWizardState(
 
   const handleDocsComplete = useCallback(
     (result: unknown) => {
-      if (docsPollTimerRef.current) {
-        clearTimeout(docsPollTimerRef.current);
-        docsPollTimerRef.current = null;
-      }
+      stopDocsPolling();
       dispatch({
         type: "DOCS_TASK_UPDATE",
         status: "completed",
         docs: result as DocumentationOutput,
       });
     },
-    [],
+    [stopDocsPolling],
   );
 
   const handleDocsFailed = useCallback(
     (error: string) => {
-      if (docsPollTimerRef.current) {
-        clearTimeout(docsPollTimerRef.current);
-        docsPollTimerRef.current = null;
-      }
+      stopDocsPolling();
       dispatch({
         type: "DOCS_TASK_UPDATE",
         status: "failed",
         error,
       });
     },
-    [],
+    [stopDocsPolling],
   );
 
   const { connected: wsConnected } = useWebSocket({
@@ -617,76 +601,11 @@ export function useWizardState(
   useEffect(() => {
     wsConnectedRef.current = wsConnected;
     if (wsConnected) {
-      if (pollTimerRef.current) {
-        clearTimeout(pollTimerRef.current);
-        pollTimerRef.current = null;
-      }
-      if (docsPollTimerRef.current) {
-        clearTimeout(docsPollTimerRef.current);
-        docsPollTimerRef.current = null;
-      }
+      stopDesignPolling();
+      stopDocsPolling();
     }
-  }, [wsConnected]);
+  }, [wsConnected, stopDesignPolling, stopDocsPolling]);
 
-  // ---------------------------------------------------------------------------
-  // Docs task polling (fallback when WebSocket is unavailable)
-  // ---------------------------------------------------------------------------
-
-  const pollDocsTaskRef = useRef<(taskId: string, attempt?: number) => Promise<void>>();
-  const pollDocsTask = useCallback(
-    async (taskId: string, attempt = 0) => {
-      if (wsConnectedRef.current) return;
-
-      if (attempt >= DOCS_POLL_MAX_ATTEMPTS) {
-        dispatch({
-          type: "DOCS_TASK_UPDATE",
-          status: "failed",
-          error: "Documentation task timed out. Please try again.",
-        });
-        return;
-      }
-
-      try {
-        const task = await getDocsTask(taskId, tenantId);
-
-        if (task.status === "completed" && task.result) {
-          dispatch({
-            type: "DOCS_TASK_UPDATE",
-            status: "completed",
-            docs: task.result as DocumentationOutput,
-          });
-          return;
-        }
-
-        if (task.status === "failed") {
-          dispatch({
-            type: "DOCS_TASK_UPDATE",
-            status: "failed",
-            error: task.error ?? "Documentation task failed",
-          });
-          return;
-        }
-
-        dispatch({
-          type: "DOCS_TASK_UPDATE",
-          status: task.status as DocsTaskStatus,
-        });
-
-        docsPollTimerRef.current = setTimeout(() => {
-          pollDocsTaskRef.current?.(taskId, attempt + 1);
-        }, DOCS_POLL_INTERVAL_MS);
-      } catch (err) {
-        const error = err instanceof Error ? err.message : "Failed to check docs status";
-        dispatch({
-          type: "DOCS_TASK_UPDATE",
-          status: "failed",
-          error,
-        });
-      }
-    },
-    [tenantId],
-  );
-  useEffect(() => { pollDocsTaskRef.current = pollDocsTask; });
 
   // ---------------------------------------------------------------------------
   // Hydrate from backend on mount

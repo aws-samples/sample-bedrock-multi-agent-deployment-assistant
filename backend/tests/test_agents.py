@@ -282,14 +282,6 @@ class TestDocsPromptFiles:
         assert "{requirements_json}" in prompt
         assert "{cft_template}" in prompt
 
-    def test_load_prompt_threat_model(self):
-        from src.agents.documentation import _load_prompt
-
-        prompt = _load_prompt("docs_threat_model.txt")
-        assert "{design_json}" in prompt
-        assert "{requirements_json}" in prompt
-        assert "STRIDE" in prompt
-
     def test_all_prompt_files_exist(self):
         from pathlib import Path
 
@@ -298,7 +290,6 @@ class TestDocsPromptFiles:
             "docs_diagram.txt",
             "docs_diagram_fix.txt",
             "docs_user_guide.txt",
-            "docs_threat_model.txt",
         ]
         for name in expected:
             assert (prompts_dir / name).exists(), f"Missing prompt file: {name}"
@@ -341,7 +332,6 @@ class TestDocumentationOutputModel:
 
         output = DocumentationOutput()
         assert output.user_guide == ""
-        assert output.threat_model == ""
         assert output.architecture_diagram == ""
         assert output.diagram_fix_attempts == 0
         assert output.diagram_validation_passed is False
@@ -351,7 +341,6 @@ class TestDocumentationOutputModel:
 
         output = DocumentationOutput(
             user_guide="# Guide",
-            threat_model="# Threats",
             architecture_diagram="architecture-beta\n  service s1(aws:ec2)[EC2]",
             diagram_fix_attempts=2,
             diagram_validation_passed=True,
@@ -477,7 +466,6 @@ class TestToolPolicies:
         assert TOOL_POLICIES["docs-diagram"] == set()
         assert TOOL_POLICIES["docs-diagram-fix"] == set()
         assert TOOL_POLICIES["docs-user-guide"] == set()
-        assert TOOL_POLICIES["docs-threat-model"] == set()
 
     def test_denied_tools_include_dangerous_operations(self):
         from src.config.tool_policies import DENIED_TOOLS

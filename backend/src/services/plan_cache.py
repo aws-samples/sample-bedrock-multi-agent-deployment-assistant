@@ -1,22 +1,19 @@
-"""Interview plan cache — in-memory with persistent fallback.
+"""Interview plan cache — in-memory with S3 persistence.
 
 Active plans are kept in a thread-safe dict for fast access.  Each plan
-is also written to persistent storage (local JSON or S3) so sessions
-survive server restarts.  Stale entries are evicted based on TTL.
+is also written to S3 so sessions survive server restarts.  Stale entries
+are evicted based on TTL.
 """
 
 import logging
 import threading
 import time
-from pathlib import Path
 
 from src.config.settings import settings
 from src.models.interview_plan import QuestionPlan
 from src.utils.validation import validate_safe_id
 
 logger = logging.getLogger(__name__)
-
-_DATA_DIR = Path(".local-data")
 
 
 class PlanCache:
@@ -38,12 +35,12 @@ class PlanCache:
                 self._cache[session_id] = (plan, time.monotonic())
                 return plan
 
-        # Cache miss — try persistent storage
-        plan = self._load_persistent(session_id)
-        if plan:
-            with self._lock:
+            # Cache miss — load from S3 inside the lock to prevent concurrent
+            # load+save from overwriting a fresh save with stale S3 data.
+            plan = self._load_persistent(session_id)
+            if plan:
                 self._cache[session_id] = (plan, time.monotonic())
-        return plan
+            return plan
 
     def save(self, session_id: str, plan: QuestionPlan) -> None:
         """Write plan to both memory cache and persistent storage."""
@@ -71,67 +68,16 @@ class PlanCache:
 
     # --- persistent storage ---
 
-    def _plan_path(self, session_id: str) -> Path | None:
-        """Resolve the local file path for a session's plan.
-
-        Session IDs follow the pattern 'interview-{tenant_id}-{project_id}'.
-        """
-        parts = session_id.split("-", 2)  # interview-{tenant}-{project}
-        if len(parts) < 3 or parts[0] != "interview":
-            return None
-        tenant_id, project_id = parts[1], parts[2]
-        try:
-            validate_safe_id(tenant_id, "tenant_id")
-            validate_safe_id(project_id, "project_id")
-        except ValueError:
-            return None
-        path = (_DATA_DIR / tenant_id / project_id / "interview_plan.json").resolve()
-        if not path.is_relative_to(_DATA_DIR.resolve()):
-            return None
-        return path
-
     def _load_persistent(self, session_id: str) -> QuestionPlan | None:
-        if settings.storage_backend == "aws":
-            return self._load_s3(session_id)
-        return self._load_local(session_id)
+        return self._load_s3(session_id)
 
     def _save_persistent(self, session_id: str, plan: QuestionPlan) -> None:
-        if settings.storage_backend == "aws":
-            self._save_s3(session_id, plan)
-        else:
-            self._save_local(session_id, plan)
+        self._save_s3(session_id, plan)
 
     def _delete_persistent(self, session_id: str) -> None:
-        if settings.storage_backend == "aws":
-            self._delete_s3(session_id)
-        else:
-            self._delete_local(session_id)
+        self._delete_s3(session_id)
 
-    # --- local backend ---
-
-    def _load_local(self, session_id: str) -> QuestionPlan | None:
-        path = self._plan_path(session_id)
-        if not path or not path.exists():
-            return None
-        try:
-            return QuestionPlan.model_validate_json(path.read_text())
-        except Exception:
-            logger.warning("Failed to load plan from %s", path, exc_info=True)
-            return None
-
-    def _save_local(self, session_id: str, plan: QuestionPlan) -> None:
-        path = self._plan_path(session_id)
-        if not path:
-            return
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(plan.model_dump_json(indent=2))
-
-    def _delete_local(self, session_id: str) -> None:
-        path = self._plan_path(session_id)
-        if path and path.exists():
-            path.unlink()
-
-    # --- AWS S3 backend ---
+    # --- S3 backend ---
 
     def _s3_key(self, session_id: str) -> str | None:
         parts = session_id.split("-", 2)
@@ -150,9 +96,9 @@ class PlanCache:
         if not key:
             return None
         try:
-            import boto3
+            from src.config.aws import aws_client
 
-            obj = boto3.client("s3", region_name=settings.aws_region).get_object(
+            obj = aws_client("s3").get_object(
                 Bucket=settings.s3_artifacts_bucket, Key=key
             )
             return QuestionPlan.model_validate_json(obj["Body"].read())
@@ -164,13 +110,14 @@ class PlanCache:
         if not key:
             return
         try:
-            import boto3
+            from src.config.aws import aws_client, s3_encryption_kwargs
 
-            boto3.client("s3", region_name=settings.aws_region).put_object(
+            aws_client("s3").put_object(
                 Bucket=settings.s3_artifacts_bucket,
                 Key=key,
                 Body=plan.model_dump_json().encode(),
                 ContentType="application/json",
+                **s3_encryption_kwargs(),
             )
         except Exception:
             logger.warning("Failed to persist plan to S3", exc_info=True)
@@ -180,9 +127,9 @@ class PlanCache:
         if not key:
             return
         try:
-            import boto3
+            from src.config.aws import aws_client
 
-            boto3.client("s3", region_name=settings.aws_region).delete_object(
+            aws_client("s3").delete_object(
                 Bucket=settings.s3_artifacts_bucket, Key=key
             )
         except Exception:

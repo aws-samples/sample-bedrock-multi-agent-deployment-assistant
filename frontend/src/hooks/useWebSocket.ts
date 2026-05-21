@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useState } from "react";
+import { getStoredToken } from "@/lib/auth";
 
 const WS_URL = process.env.NEXT_PUBLIC_WEBSOCKET_URL;
 
 const MAX_RECONNECT_DELAY_MS = 30_000;
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
+const MAX_RECONNECT_ATTEMPTS = 20;
 
 interface UseWebSocketOptions {
   projectId: string;
@@ -35,6 +37,7 @@ export function useWebSocket({
   onDocsFailed,
 }: UseWebSocketOptions) {
   const [connected, setConnected] = useState(false);
+  const [reconnectExhausted, setReconnectExhausted] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -80,13 +83,19 @@ export function useWebSocket({
     setConnected(false);
   }, []);
 
-  const connectRef = useRef<() => void>();
+  const connectRef = useRef<() => void>(undefined);
   const connect = useCallback(() => {
     if (!WS_URL) return;
 
     cleanup();
 
-    const ws = new WebSocket(WS_URL);
+    // WebSocket API doesn't support custom headers, so the token is passed as a
+    // query param. In production the API Gateway authorizer validates and discards
+    // it on $connect — the token is not logged by AWS infrastructure. For proxies
+    // that log URLs, consider a short-lived exchange ticket pattern.
+    const token = getStoredToken();
+    const url = token ? `${WS_URL}?token=${encodeURIComponent(token)}` : WS_URL;
+    const ws = new WebSocket(url);
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -145,8 +154,12 @@ export function useWebSocket({
       setConnected(false);
       wsRef.current = null;
 
-      // Reconnect with exponential backoff
       const attempt = reconnectAttemptRef.current;
+      if (attempt >= MAX_RECONNECT_ATTEMPTS) {
+        setReconnectExhausted(true);
+        return;
+      }
+
       const delay = Math.min(
         INITIAL_RECONNECT_DELAY_MS * Math.pow(2, attempt),
         MAX_RECONNECT_DELAY_MS,
@@ -174,5 +187,5 @@ export function useWebSocket({
     };
   }, [connect, cleanup]);
 
-  return { connected };
+  return { connected, reconnectExhausted };
 }

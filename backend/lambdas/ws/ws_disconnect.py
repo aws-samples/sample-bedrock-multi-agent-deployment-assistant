@@ -18,31 +18,35 @@ def handler(event, context):
     connection_id = event["requestContext"]["connectionId"]
     logger.info("WebSocket disconnect: %s", connection_id)
 
-    table = boto3.resource("dynamodb").Table(os.environ["DYNAMODB_TABLE"])
+    try:
+        table = boto3.resource("dynamodb").Table(os.environ["DYNAMODB_TABLE"])
 
-    # Query all items for this connection (CONNECTION + SUB#... entries)
-    response = table.query(
-        KeyConditionExpression="pk = :pk",
-        ExpressionAttributeValues={":pk": f"WS#{connection_id}"},
-    )
-    items = response.get("Items", [])
-
-    # Paginate if there are more results
-    while response.get("LastEvaluatedKey"):
+        # Query all items for this connection (CONNECTION + SUB#... entries)
         response = table.query(
             KeyConditionExpression="pk = :pk",
             ExpressionAttributeValues={":pk": f"WS#{connection_id}"},
-            ExclusiveStartKey=response["LastEvaluatedKey"],
         )
-        items.extend(response.get("Items", []))
+        items = response.get("Items", [])
 
-    # Batch delete all connection and subscription items
-    if items:
-        with table.batch_writer() as batch:
-            for item in items:
-                batch.delete_item(Key={"pk": item["pk"], "sk": item["sk"]})
-        logger.info(
-            "Deleted %d item(s) for connection %s", len(items), connection_id,
-        )
+        # Paginate if there are more results
+        while response.get("LastEvaluatedKey"):
+            response = table.query(
+                KeyConditionExpression="pk = :pk",
+                ExpressionAttributeValues={":pk": f"WS#{connection_id}"},
+                ExclusiveStartKey=response["LastEvaluatedKey"],
+            )
+            items.extend(response.get("Items", []))
 
-    return {"statusCode": 200}
+        # Batch delete all connection and subscription items
+        if items:
+            with table.batch_writer() as batch:
+                for item in items:
+                    batch.delete_item(Key={"pk": item["pk"], "sk": item["sk"]})
+            logger.info(
+                "Deleted %d item(s) for connection %s", len(items), connection_id,
+            )
+
+        return {"statusCode": 200}
+    except Exception:
+        logger.exception("WebSocket disconnect failed for %s", connection_id)
+        return {"statusCode": 200}

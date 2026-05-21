@@ -120,6 +120,19 @@ def process_docs_task(
 
     store.save_step(tenant_id, project_id, "docs", result_dict, advance=True)
 
+    # Persist docs as standalone S3 artifacts for direct access
+    try:
+        from src.tools.save_artifact import persist_artifacts
+        doc_files = {}
+        if output.user_guide:
+            doc_files["docs/user_guide.md"] = output.user_guide
+        if output.architecture_diagram:
+            doc_files["docs/architecture_diagram.md"] = output.architecture_diagram
+        if doc_files:
+            persist_artifacts(tenant_id, project_id, doc_files, content_type="text/markdown")
+    except Exception:
+        logger.debug("Artifact persistence failed (non-critical)", exc_info=True)
+
     # Clear active task tracker on the project
     project = store.get_project(tenant_id, project_id)
     if project:

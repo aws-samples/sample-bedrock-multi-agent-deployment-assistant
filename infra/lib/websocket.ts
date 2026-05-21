@@ -80,6 +80,22 @@ export class WebSocketConstruct extends Construct {
       autoDeploy: true,
     });
 
+    // Wire access logging to the stage via L1 escape hatch
+    const cfnStage = this.stage.node.defaultChild as apigatewayv2.CfnStage;
+    cfnStage.accessLogSettings = {
+      destinationArn: accessLogGroup.logGroupArn,
+      format: JSON.stringify({
+        requestId: "$context.requestId",
+        ip: "$context.identity.sourceIp",
+        connectionId: "$context.connectionId",
+        eventType: "$context.eventType",
+        routeKey: "$context.routeKey",
+        status: "$context.status",
+        requestTime: "$context.requestTime",
+        integrationError: "$context.integrationErrorMessage",
+      }),
+    };
+
     // Callback URL for posting messages back to WebSocket clients
     this.callbackUrl = this.stage.callbackUrl;
 

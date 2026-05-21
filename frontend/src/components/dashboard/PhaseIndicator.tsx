@@ -17,8 +17,8 @@ export function PhaseIndicator({ currentStep }: PhaseIndicatorProps) {
   const currentIndex = STEPS.findIndex((s) => s.key === currentStep);
 
   return (
-    <div className="mb-6">
-      <div className="flex items-center gap-2">
+    <nav aria-label="Wizard progress" className="mb-6">
+      <ol className="flex items-center gap-2" role="list">
         {STEPS.map((step, i) => {
           const isActive = i === currentIndex;
           const isComplete = i < currentIndex;
@@ -37,20 +37,29 @@ export function PhaseIndicator({ currentStep }: PhaseIndicatorProps) {
           const lineClass = isComplete ? "bg-green-600" : "bg-gray-200";
 
           return (
-            <div key={step.key} className="flex items-center gap-2">
-              <div className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium ${circleClass}`}>
+            <li
+              key={step.key}
+              className="flex items-center gap-2"
+              aria-current={isActive ? "step" : undefined}
+            >
+              <div
+                className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium ${circleClass}`}
+                aria-hidden="true"
+              >
                 {isComplete ? "\u2713" : i + 1}
               </div>
               <span className={`text-sm ${labelClass}`}>
                 {step.label}
+                {isComplete && <span className="sr-only"> (completed)</span>}
+                {isActive && <span className="sr-only"> (current)</span>}
               </span>
               {i < STEPS.length - 1 && (
-                <div className={`w-8 h-0.5 ${lineClass}`} />
+                <div className={`w-8 h-0.5 ${lineClass}`} aria-hidden="true" />
               )}
-            </div>
+            </li>
           );
         })}
-      </div>
-    </div>
+      </ol>
+    </nav>
   );
 }

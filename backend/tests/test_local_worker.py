@@ -3,6 +3,7 @@
 import time
 from unittest.mock import MagicMock, patch
 
+import pytest
 
 from src.models.requirements import InterviewOutput, UseCases
 
@@ -140,6 +141,7 @@ class TestExtractRecommendation:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.integration
 class TestLocalWorker:
     @patch("src.workers.local_worker.process_design_task")
     def test_enqueue_and_process(self, mock_process):

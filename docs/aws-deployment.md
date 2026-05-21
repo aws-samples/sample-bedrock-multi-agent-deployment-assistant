@@ -36,8 +36,8 @@ aws sts get-caller-identity
 1. Open the [Bedrock console](https://console.aws.amazon.com/bedrock/) in your target region
 2. Go to **Model access** → **Manage model access**
 3. Request access to:
-   - **Anthropic Claude Sonnet** (used by design, IaC, and interview agents)
-   - **Anthropic Claude Haiku** (used by documentation agent)
+   - **Anthropic Claude Sonnet 4.5** (used by interview planner, design, IaC, and documentation agents)
+   - **Anthropic Claude Haiku 4.5** (used by interview executor for fast single-turn processing)
 4. Wait for access status to show **Access granted**
 
 Model access is region-specific. Ensure you request access in the same region you'll deploy to.
@@ -246,6 +246,8 @@ curl https://$ALB_DNS/ping
 # {"status": "ok"}
 
 # Deep (checks Bedrock + DynamoDB connectivity)
+# In production (debug=false), only returns {"status": "healthy"} or {"status": "degraded"}
+# In debug mode, returns full dependency check details
 curl https://$ALB_DNS/health
 # {"status": "healthy"}
 ```
@@ -272,7 +274,7 @@ wscat -c "<WebSocketUrl>"
 | ALB + WAF | Load balancing + security | ~$16/mo |
 | DynamoDB (on-demand) | Project metadata + task state | ~$10-50/mo |
 | S3 (3 buckets) | KB docs, artifacts, access logs | ~$5/mo |
-| Lambda (8 functions) | 3 workers + 5 WebSocket handlers | ~$1-5/mo |
+| Lambda (9 functions) | 3 workers + 6 WebSocket handlers | ~$1-5/mo |
 | SQS (3 FIFO + 3 DLQ) | Async task queues | <$1/mo |
 | CloudFront | Frontend CDN | ~$1-5/mo |
 | Cognito | User authentication | Free tier |

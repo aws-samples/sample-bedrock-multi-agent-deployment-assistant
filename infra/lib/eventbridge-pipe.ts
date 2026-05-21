@@ -50,6 +50,8 @@ export class EventBridgePipeConstruct extends Construct {
     pipeLogGroup.grantWrite(pipeRole);
 
     // EventBridge Pipe (L1 CfnPipe)
+    // Uses REQUEST_RESPONSE so the pipe tracks invocation success and retries
+    // on transient Lambda failures (via DynamoDB stream retry behavior).
     new pipes.CfnPipe(this, "TaskNotificationPipe", {
       name: "ai-deploy-task-notification",
       roleArn: pipeRole.roleArn,
@@ -59,6 +61,8 @@ export class EventBridgePipeConstruct extends Construct {
           startingPosition: "LATEST",
           batchSize: 10,
           maximumBatchingWindowInSeconds: 5,
+          maximumRetryAttempts: 3,
+          onPartialBatchItemFailure: "AUTOMATIC_BISECT",
         },
         filterCriteria: {
           filters: [
@@ -81,7 +85,7 @@ export class EventBridgePipeConstruct extends Construct {
       target: props.notificationBridgeLambda.functionArn,
       targetParameters: {
         lambdaFunctionParameters: {
-          invocationType: "FIRE_AND_FORGET",
+          invocationType: "REQUEST_RESPONSE",
         },
       },
       logConfiguration: {

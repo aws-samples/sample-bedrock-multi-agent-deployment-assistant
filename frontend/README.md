@@ -29,7 +29,7 @@ src/
 │   │   ├── DesignReview.tsx        # Step 2: compare architecture options
 │   │   ├── DeploymentParametersForm.tsx  # Step 2b: CIDR, region, env
 │   │   ├── IaCView.tsx             # Step 3: generated CloudFormation files
-│   │   └── DocumentationView.tsx   # Step 4: user guide, threat model, diagram
+│   │   └── DocumentationView.tsx   # Step 4: user guide + architecture diagram
 │   ├── ui/                         # Reusable components
 │   │   ├── CodeBlock.tsx           # Syntax-highlighted code (Prism)
 │   │   ├── MarkdownRenderer.tsx    # Markdown → React with Tailwind prose
@@ -51,11 +51,11 @@ Dashboard → Create Project
   ↓
 Step 1: Requirements    → Form input + optional AI interview chat (SSE)
   ↓
-Step 2: Design          → Review 2-3 architecture options → Select + refine parameters
+Step 2: Design          → Review 3 architecture options → Select + refine parameters
   ↓
 Step 3: IaC             → View generated CloudFormation files + validation report
   ↓
-Step 4: Documentation   → User guide, threat model, architecture diagram
+Step 4: Documentation   → User guide + architecture diagram
 ```
 
 ## State Management

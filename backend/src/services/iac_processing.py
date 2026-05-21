@@ -111,6 +111,14 @@ def process_iac_task(
     # the "iac" step to review the template before explicitly proceeding to docs.
     store.save_step(tenant_id, project_id, "iac", result_dict, advance=False)
 
+    # Persist individual template files as standalone S3 artifacts
+    if output.files:
+        try:
+            from src.tools.save_artifact import persist_artifacts
+            persist_artifacts(tenant_id, project_id, output.files, content_type="application/x-yaml")
+        except Exception:
+            logger.debug("Artifact persistence failed (non-critical)", exc_info=True)
+
     # Clear active IaC task pointer
     project = store.get_project(tenant_id, project_id)
     if project:

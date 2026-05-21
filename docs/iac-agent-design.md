@@ -362,7 +362,7 @@ The validation pipeline classifies errors by layer, not just severity:
 
 ### 4.5a Layer 3: cfn-guard Custom product Rules — NON-BLOCKING
 
-Custom guard rules stored in `backend/src/validation/product_rules.guard`:
+Custom guard rules stored in `backend/src/validation/appliance_rules.guard`:
 
 1. **productInstanceType**: Approved compute-optimized instance types only
 2. **productMultipleENIs**: At least 2 ENIs per product (mgmt + data)
@@ -490,7 +490,7 @@ Token budgets are per-path (the LLM generates structured JSON):
 |------|---------|---------|-----------------|
 | PARAMETERIZE | N/A | N/A | None (pure Python) |
 | COMPOSE | `iac_compose_max_tokens` | 32768 | SnippetAssemblyPlan JSON |
-| GENERATE (layer plan) | `iac_layer_plan_max_tokens` | 4096 | LayerPlan JSON (~2KB) |
+| GENERATE (layer plan) | `iac_layer_plan_max_tokens` | 16384 | LayerPlan JSON (or predefined fast path) |
 | GENERATE (per-layer) | `iac_layer_generate_max_tokens` | 16384 | Per-layer ResourcePlan JSON |
 | Fix (per-layer) | `iac_layer_fix_max_tokens` | 16384 | Fixed per-layer ResourcePlan |
 | Fix (monolithic fallback) | `iac_fix_max_tokens` | 32768 | Fixed ResourcePlan JSON |
@@ -859,10 +859,10 @@ The following components are already deployed and working for design task notifi
 | Component | Implementation | Purpose |
 |-----------|---------------|---------|
 | API Gateway WebSocket API | `infra/lib/websocket.ts` | `$connect` / `$disconnect` / `subscribe` routes |
-| `ws-connect` Lambda | `backend/src/workers/ws_connect.py` | Stores `WS#{connection_id}` + `CONNECTION` in DynamoDB (2h TTL) |
-| `ws-disconnect` Lambda | `backend/src/workers/ws_disconnect.py` | Queries `pk=WS#{connection_id}`, batch-deletes all items |
-| `ws-subscribe` Lambda | `backend/src/workers/ws_subscribe.py` | Stores subscription with `gsi2pk: SUB#{tenant_id}#{project_id}` |
-| `ws-heartbeat` Lambda | `backend/src/workers/ws_heartbeat.py` | Pings connections every 5min, cleans stale ones, publishes CW metrics |
+| `ws-connect` Lambda | `backend/lambdas/ws/ws_connect.py` | Stores `WS#{connection_id}` + `CONNECTION` in DynamoDB (2h TTL) |
+| `ws-disconnect` Lambda | `backend/lambdas/ws/ws_disconnect.py` | Queries `pk=WS#{connection_id}`, batch-deletes all items |
+| `ws-subscribe` Lambda | `backend/lambdas/ws/ws_subscribe.py` | Stores subscription with `gsi2pk: SUB#{tenant_id}#{project_id}` |
+| `ws-heartbeat` Lambda | `backend/lambdas/ws/ws_heartbeat.py` | Pings connections every 5min, cleans stale ones, publishes CW metrics |
 | Local WS manager | `backend/src/services/ws_manager.py` | In-memory subscription map for local dev, thread-safe `notify()` |
 
 ### 8.2 Connection Tracking (DynamoDB — Existing Schema, No Changes)
@@ -945,7 +945,7 @@ Lambda: ws-notification-bridge (ai-deploy-ws-notification-bridge)
 WebSocket push to frontend
 ```
 
-**Changes to `ws-notification-bridge` Lambda** (`backend/src/workers/ws_notification_bridge.py`):
+**Changes to `ws-notification-bridge` Lambda** (`backend/lambdas/ws/ws_notification_bridge.py`):
 - Determine domain from SK prefix (`"iac"` or `"design"`)
 - Map terminal statuses to distinct message types: `{domain}_complete`, `{domain}_failed`
 - For completed tasks: GetItem to include `result` payload

@@ -1,25 +1,34 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import {
   AuthContext,
   AuthState,
   isLocalMode,
+  isHostedUI,
   getStoredToken,
   getStoredTenantId,
   storeAuth,
   clearAuth,
   parseTenantFromToken,
+  getTokenExpiryMs,
   buildLoginUrl,
   buildLogoutUrl,
 } from "@/lib/auth";
 
+const PUBLIC_PATHS = ["/login", "/auth/callback"];
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  const pathname = usePathname();
   const [token, setToken] = useState<string | null>(null);
   const [tenantId, setTenantId] = useState("local-dev");
   const [ready, setReady] = useState(false);
 
   const localMode = isLocalMode();
+  const hostedUI = isHostedUI();
+  const isPublicPage = PUBLIC_PATHS.includes(pathname);
 
   useEffect(() => {
     if (localMode) {
@@ -52,20 +61,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setReady(true);
   }, [localMode]);
 
+  // Schedule re-login 60s before token expires
+  useEffect(() => {
+    if (localMode || !token) return;
+    const remainingMs = getTokenExpiryMs(token);
+    if (remainingMs === null) return;
+
+    const doRelogin = () => {
+      clearAuth();
+      if (hostedUI) {
+        window.location.href = buildLoginUrl();
+      } else {
+        router.push("/login");
+      }
+    };
+
+    if (remainingMs <= 0) {
+      doRelogin();
+      return;
+    }
+    const bufferMs = 60_000;
+    const timer = setTimeout(doRelogin, Math.max(remainingMs - bufferMs, 0));
+    return () => clearTimeout(timer);
+  }, [localMode, hostedUI, token, router]);
+
   const login = useCallback(() => {
     if (!localMode) {
-      window.location.href = buildLoginUrl();
+      if (hostedUI) {
+        window.location.href = buildLoginUrl();
+      } else {
+        router.push("/login");
+      }
     }
-  }, [localMode]);
+  }, [localMode, hostedUI, router]);
 
   const logout = useCallback(() => {
     clearAuth();
     setToken(null);
     setTenantId("local-dev");
     if (!localMode) {
-      window.location.href = buildLogoutUrl();
+      if (hostedUI) {
+        window.location.href = buildLogoutUrl();
+      } else {
+        router.push("/login");
+      }
     }
-  }, [localMode]);
+  }, [localMode, hostedUI, router]);
 
   const value: AuthState = useMemo(
     () => ({
@@ -79,13 +120,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [localMode, tenantId, token, login, logout],
   );
 
-  if (!ready) return null;
+  // Redirect to login if not authenticated (skip for public pages)
+  useEffect(() => {
+    if (ready && !localMode && !token && !isPublicPage) {
+      login();
+    }
+  }, [ready, localMode, token, isPublicPage, login]);
 
-  // In Cognito mode, redirect to login if no token
-  if (!localMode && !token) {
-    login();
-    return null;
-  }
+  if (!ready) return null;
+  if (!localMode && !token && !isPublicPage) return null;
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

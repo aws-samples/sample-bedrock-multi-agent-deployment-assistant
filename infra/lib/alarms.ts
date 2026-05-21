@@ -1,10 +1,12 @@
 import * as cdk from "aws-cdk-lib";
+import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as cw_actions from "aws-cdk-lib/aws-cloudwatch-actions";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import * as kms from "aws-cdk-lib/aws-kms";
+import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as subs from "aws-cdk-lib/aws-sns-subscriptions";
@@ -20,6 +22,16 @@ export interface AlarmsConstructProps {
   designDlq?: sqs.Queue;
   iacDlq?: sqs.Queue;
   docsDlq?: sqs.Queue;
+  /** SQS main queues to monitor message age. */
+  designQueue?: sqs.Queue;
+  iacQueue?: sqs.Queue;
+  docsQueue?: sqs.Queue;
+  /** Worker Lambda functions to monitor for invocation errors. */
+  designWorker?: lambda.Function;
+  iacWorker?: lambda.Function;
+  docsWorker?: lambda.Function;
+  /** CloudFront distribution for 5xx monitoring. */
+  distribution?: cloudfront.Distribution;
   /** Optional email for alarm notifications. */
   notificationEmail?: string;
   /** KMS key for encrypting SNS topic at rest. */
@@ -296,5 +308,190 @@ export class AlarmsConstruct extends Construct {
         }),
       );
     }
+
+    // ---------------------------------------------------------------------------
+    // 6.2 — CloudFront 5xx error rate alarm
+    // ---------------------------------------------------------------------------
+
+    if (props.distribution) {
+      const cf5xxMetric = new cloudwatch.Metric({
+        namespace: "AWS/CloudFront",
+        metricName: "5xxErrorRate",
+        dimensionsMap: {
+          DistributionId: props.distribution.distributionId,
+          Region: "Global",
+        },
+        period: cdk.Duration.minutes(5),
+        statistic: "Average",
+      });
+
+      const cf5xxAlarm = createAlarmWithActions(
+        "CloudFront5xxRate",
+        "ai-deploy-cloudfront-5xx-rate",
+        cf5xxMetric,
+        5,
+        "CloudFront 5xx error rate > 5% — possible origin misconfiguration or edge failure",
+        2,
+      );
+
+      this.dashboard.addWidgets(
+        new cloudwatch.AlarmWidget({
+          title: "CloudFront 5xx Rate",
+          alarm: cf5xxAlarm,
+          width: 8,
+        }),
+      );
+    }
+
+    // ---------------------------------------------------------------------------
+    // 6.3 — Lambda execution error alarms
+    // ---------------------------------------------------------------------------
+
+    const workerLambdas: { id: string; name: string; fn: lambda.Function; desc: string }[] = [];
+    if (props.designWorker) {
+      workerLambdas.push({
+        id: "DesignWorkerErrors",
+        name: "ai-deploy-design-worker-errors",
+        fn: props.designWorker,
+        desc: "Design worker Lambda invocation errors — possible code bug or Bedrock API change",
+      });
+    }
+    if (props.iacWorker) {
+      workerLambdas.push({
+        id: "IaCWorkerErrors",
+        name: "ai-deploy-iac-worker-errors",
+        fn: props.iacWorker,
+        desc: "IaC worker Lambda invocation errors — possible code bug or Bedrock API change",
+      });
+    }
+    if (props.docsWorker) {
+      workerLambdas.push({
+        id: "DocsWorkerErrors",
+        name: "ai-deploy-docs-worker-errors",
+        fn: props.docsWorker,
+        desc: "Docs worker Lambda invocation errors — possible code bug or Bedrock API change",
+      });
+    }
+
+    const lambdaErrorAlarms: cloudwatch.Alarm[] = [];
+    for (const { id: lambdaId, name: lambdaName, fn, desc } of workerLambdas) {
+      const errorAlarm = createAlarmWithActions(
+        lambdaId,
+        lambdaName,
+        fn.metricErrors({ period: cdk.Duration.minutes(5), statistic: "Sum" }),
+        1,
+        desc,
+        1,
+      );
+      lambdaErrorAlarms.push(errorAlarm);
+    }
+
+    if (lambdaErrorAlarms.length > 0) {
+      this.dashboard.addWidgets(
+        ...lambdaErrorAlarms.map(
+          (alarm, i) =>
+            new cloudwatch.AlarmWidget({
+              title: `Lambda Errors: ${workerLambdas[i].id.replace("Errors", "")}`,
+              alarm,
+              width: 8,
+            }),
+        ),
+      );
+    }
+
+    // ---------------------------------------------------------------------------
+    // 6.4 — SQS message age alarms (detect stuck consumers)
+    // ---------------------------------------------------------------------------
+
+    const queuesForAge: { id: string; name: string; queue: sqs.Queue; threshold: number; desc: string }[] = [];
+    if (props.designQueue) {
+      queuesForAge.push({
+        id: "DesignQueueAge",
+        name: "ai-deploy-design-queue-age",
+        queue: props.designQueue,
+        threshold: 600,
+        desc: "Design queue oldest message > 10 min — consumer may be stuck or concurrency exhausted",
+      });
+    }
+    if (props.iacQueue) {
+      queuesForAge.push({
+        id: "IaCQueueAge",
+        name: "ai-deploy-iac-queue-age",
+        queue: props.iacQueue,
+        threshold: 1800,
+        desc: "IaC queue oldest message > 30 min — consumer may be stuck or concurrency exhausted",
+      });
+    }
+    if (props.docsQueue) {
+      queuesForAge.push({
+        id: "DocsQueueAge",
+        name: "ai-deploy-docs-queue-age",
+        queue: props.docsQueue,
+        threshold: 1200,
+        desc: "Docs queue oldest message > 20 min — consumer may be stuck or concurrency exhausted",
+      });
+    }
+
+    const queueAgeAlarms: cloudwatch.Alarm[] = [];
+    for (const { id: queueId, name: queueName, queue, threshold, desc } of queuesForAge) {
+      const ageAlarm = createAlarmWithActions(
+        queueId,
+        queueName,
+        queue.metricApproximateAgeOfOldestMessage({
+          period: cdk.Duration.minutes(5),
+          statistic: "Maximum",
+        }),
+        threshold,
+        desc,
+        2,
+      );
+      queueAgeAlarms.push(ageAlarm);
+    }
+
+    if (queueAgeAlarms.length > 0) {
+      this.dashboard.addWidgets(
+        ...queueAgeAlarms.map(
+          (alarm, i) =>
+            new cloudwatch.AlarmWidget({
+              title: `Queue Age: ${queuesForAge[i].id.replace("QueueAge", "")}`,
+              alarm,
+              width: 8,
+            }),
+        ),
+      );
+    }
+
+    // ---------------------------------------------------------------------------
+    // 6.6 — Bedrock throttling alarm (custom metric from backend)
+    // ---------------------------------------------------------------------------
+
+    const bedrockThrottleMetric = new cloudwatch.Metric({
+      namespace: "AI-Deploy",
+      metricName: "BedrockThrottleCount",
+      period: cdk.Duration.minutes(5),
+      statistic: "Sum",
+    });
+
+    const bedrockThrottleAlarm = createAlarmWithActions(
+      "BedrockThrottling",
+      "ai-deploy-bedrock-throttling",
+      bedrockThrottleMetric,
+      5,
+      "Bedrock throttling (429s) detected — tasks silently retrying or failing. Consider requesting quota increase.",
+      2,
+    );
+
+    this.dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: "Bedrock Throttle Count",
+        left: [bedrockThrottleMetric],
+        width: 12,
+      }),
+      new cloudwatch.AlarmWidget({
+        title: "Bedrock Throttle Alarm",
+        alarm: bedrockThrottleAlarm,
+        width: 12,
+      }),
+    );
   }
 }

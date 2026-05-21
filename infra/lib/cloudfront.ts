@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as cdk from "aws-cdk-lib";
+import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as s3 from "aws-cdk-lib/aws-s3";
@@ -49,6 +50,17 @@ export class CloudFrontConstruct extends Construct {
     const responseHeadersPolicy = new cloudfront.ResponseHeadersPolicy(this, "SecurityHeaders", {
       responseHeadersPolicyName: "ai-deploy-frontend-security-headers",
       securityHeadersBehavior: {
+        contentSecurityPolicy: {
+          contentSecurityPolicy: [
+            "default-src 'self'",
+            "script-src 'self'",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data:",
+            "connect-src 'self' https://*.amazonaws.com wss://*.amazonaws.com",
+            "frame-ancestors 'none'",
+          ].join("; "),
+          override: true,
+        },
         contentTypeOptions: { override: true },
         frameOptions: {
           frameOption: cloudfront.HeadersFrameOption.DENY,
@@ -102,9 +114,12 @@ export class CloudFrontConstruct extends Construct {
 
     // Add custom domain + certificate if provided
     if (props.certificateArn && props.domainNames?.length) {
+      const certificate = acm.Certificate.fromCertificateArn(
+        this, "Certificate", props.certificateArn,
+      );
       Object.assign(distributionProps, {
         domainNames: props.domainNames,
-        certificate: { certificateArn: props.certificateArn },
+        certificate,
       });
     }
 

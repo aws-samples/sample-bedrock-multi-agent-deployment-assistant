@@ -163,10 +163,10 @@ class TestKBSearchFiltered:
 
 
 class TestBedrockKBProvider:
-    @patch("src.services.kb_provider.boto3")
-    def test_search_calls_bedrock_api(self, mock_boto3):
+    @patch("src.services.kb_provider._aws_client")
+    def test_search_calls_bedrock_api(self, mock_aws_client):
         mock_client = MagicMock()
-        mock_boto3.client.return_value = mock_client
+        mock_aws_client.return_value = mock_client
         mock_client.retrieve.return_value = {
             "retrievalResults": [
                 {
@@ -184,10 +184,10 @@ class TestBedrockKBProvider:
         assert results[0].text == "Valid content"
         assert results[0].score == 0.8
 
-    @patch("src.services.kb_provider.boto3")
-    def test_skips_empty_text_results(self, mock_boto3):
+    @patch("src.services.kb_provider._aws_client")
+    def test_skips_empty_text_results(self, mock_aws_client):
         mock_client = MagicMock()
-        mock_boto3.client.return_value = mock_client
+        mock_aws_client.return_value = mock_client
         mock_client.retrieve.return_value = {
             "retrievalResults": [
                 {"content": {"text": ""}, "score": 0.5, "location": {}},
@@ -205,10 +205,10 @@ class TestBedrockKBProvider:
         assert len(results) == 1
         assert results[0].text == "Valid content"
 
-    @patch("src.services.kb_provider.boto3")
-    def test_passes_filter_to_bedrock(self, mock_boto3):
+    @patch("src.services.kb_provider._aws_client")
+    def test_passes_filter_to_bedrock(self, mock_aws_client):
         mock_client = MagicMock()
-        mock_boto3.client.return_value = mock_client
+        mock_aws_client.return_value = mock_client
         mock_client.retrieve.return_value = {"retrievalResults": []}
 
         provider = BedrockKBProvider("kb-123", "us-east-1")

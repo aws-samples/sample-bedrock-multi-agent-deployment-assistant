@@ -13,10 +13,7 @@ from src.agents.interview_executor import execute_turn
 from src.agents.interview_planner import generate_plan, replan
 from src.config.circuit_breaker import CircuitOpenError
 from src.models.interview_plan import QuestionPlan
-from src.models.requirements import (
-    InterviewProgress,
-    UseCases,
-)
+from src.models.requirements import InterviewProgress
 from src.services.plan_cache import plan_cache
 from src.storage import get_store
 from src.utils.sse import circuit_breaker_error_message, sse_error, sse_event, with_heartbeats
@@ -56,15 +53,24 @@ def _get_enum_fields() -> dict[str, list[str]]:
         return {}
 
 
-def _safe_enum(enum_cls: Any, value: Any) -> Any:
-    """Validate a value against the catalog's valid options for that field type.
+def _safe_enum(field_name: str, value: Any) -> Any:
+    """Validate a value against the catalog's allowed options for a field.
 
-    Returns the value if valid, None otherwise.
+    Returns the value if it matches a valid option (case-insensitive),
+    or None if invalid — causing the interviewer to re-ask with options shown.
     """
     if value is None:
         return None
-    # Simply pass through — validation is done field-by-field in _plan_to_progress
-    return value
+    enum_fields = _get_enum_fields()
+    valid_options = enum_fields.get(field_name)
+    if valid_options is None:
+        return value
+    normalized = str(value).strip().lower()
+    match = next((v for v in valid_options if v.lower() == normalized), None)
+    if match:
+        return match
+    logger.warning("_safe_enum: '%s' is not a valid option for %s (valid: %s)", value, field_name, valid_options)
+    return None
 
 
 def _plan_to_progress(plan: QuestionPlan, message: str) -> InterviewProgress:
@@ -97,9 +103,9 @@ def _plan_to_progress(plan: QuestionPlan, message: str) -> InterviewProgress:
     progress = InterviewProgress(
         response_message=message,
         use_cases=fields.get("use_cases"),
-        gpu_budget=_safe_enum(None, fields.get("gpu_budget")),
-        availability_requirement=_safe_enum(None, fields.get("availability_requirement")),
-        data_sensitivity=_safe_enum(None, fields.get("data_sensitivity")),
+        gpu_budget=_safe_enum("gpu_budget", fields.get("gpu_budget")),
+        availability_requirement=_safe_enum("availability_requirement", fields.get("availability_requirement")),
+        data_sensitivity=_safe_enum("data_sensitivity", fields.get("data_sensitivity")),
         user_info=fields.get("user_info"),
         compliance=fields.get("compliance"),
         solution_description=fields.get("solution_description"),
@@ -143,6 +149,10 @@ async def _interview_chat_events(
 
     session_id = f"interview-{tenant_id}-{project_id}"
 
+    # Timeout for individual Bedrock calls — prevents indefinite hangs
+    _TURN_TIMEOUT = 120.0  # seconds
+    _PLAN_TIMEOUT = 180.0  # planning can take longer (KB search + Sonnet)
+
     try:
         plan = plan_cache.get(session_id)
 
@@ -153,21 +163,28 @@ async def _interview_chat_events(
             if use_case:
                 seed_data["use_cases"] = list(use_cases)
 
-            plan, initial_message = await asyncio.to_thread(
-                generate_plan, seed_data, use_cases, populated_fields, tenant_id,
+            plan, initial_message = await asyncio.wait_for(
+                asyncio.to_thread(
+                    generate_plan, seed_data, use_cases, populated_fields, tenant_id, project_id,
+                ),
+                timeout=_PLAN_TIMEOUT,
             )
             plan_cache.save(session_id, plan)
             progress = _plan_to_progress(plan, initial_message)
         else:
             # === EXECUTION PHASE (Turns 2+) ===
-            plan, turn_response = await asyncio.to_thread(
-                execute_turn, plan, message, tenant_id,
+            plan, turn_response = await asyncio.wait_for(
+                asyncio.to_thread(execute_turn, plan, message, tenant_id, project_id),
+                timeout=_TURN_TIMEOUT,
             )
 
             if turn_response.deviation_detected and turn_response.deviation_reason:
                 # Curveball — re-plan
-                plan, replan_message = await asyncio.to_thread(
-                    replan, plan, turn_response.deviation_reason, use_cases, tenant_id,
+                plan, replan_message = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        replan, plan, turn_response.deviation_reason, use_cases, tenant_id, project_id,
+                    ),
+                    timeout=_PLAN_TIMEOUT,
                 )
                 # Combine: acknowledge + re-plan message
                 combined_msg = turn_response.response_message
@@ -213,6 +230,9 @@ async def _interview_chat_events(
         yield sse_event("message", evt)
         yield sse_event("done", {"status": "ok"})
 
+    except TimeoutError:
+        logger.error("Interview timed out for session %s", session_id)
+        yield sse_error("The AI model took too long to respond. Please try again.")
     except CircuitOpenError as exc:
         logger.warning("Interview blocked by circuit breaker (retry_after=%ds)", exc.retry_after or 30)
         yield sse_error(circuit_breaker_error_message(exc.retry_after))

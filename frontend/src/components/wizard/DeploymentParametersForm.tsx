@@ -87,12 +87,14 @@ export function DeploymentParametersForm({
       if (field.required && !value.trim()) {
         errors[field.field_name] = `${field.label} is required.`;
       }
-      if (
-        value.trim() &&
-        field.validation_pattern &&
-        !new RegExp(field.validation_pattern).test(value)
-      ) {
-        errors[field.field_name] = `Invalid format for ${field.label}.`;
+      if (value.trim() && field.validation_pattern) {
+        try {
+          if (!new RegExp(field.validation_pattern).test(value)) {
+            errors[field.field_name] = `Invalid format for ${field.label}.`;
+          }
+        } catch {
+          // Invalid regex from backend — skip validation rather than crash
+        }
       }
       if (
         value.trim() &&

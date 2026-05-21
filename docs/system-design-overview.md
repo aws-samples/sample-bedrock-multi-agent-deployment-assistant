@@ -373,7 +373,7 @@ Documentation sections are pushed to the frontend individually as they complete 
 {"type": "docs_section", "section": "user_guide", "content": "..."}
 ```
 
-This means the user sees results progressively — no waiting for all 3 to finish.
+This means the user sees results progressively — no waiting for both to finish.
 
 ### Regeneration
 
@@ -453,10 +453,10 @@ stateDiagram-v2
 
 | Concern | Production | Local Development |
 |---------|-----------|-------------------|
-| **Queue** | SQS FIFO (per-stage) | In-memory `queue.Queue` |
-| **Worker** | Lambda function | Background thread |
+| **Queue** | SQS FIFO (per-stage) | Floci SQS (or in-memory `queue.Queue` if SQS not configured) |
+| **Worker** | Lambda function | Background thread polling queue |
 | **Notification** | API Gateway WebSocket → EventBridge Pipe → Lambda bridge | Direct WebSocket push |
-| **Persistence** | DynamoDB | Local JSON files |
+| **Persistence** | DynamoDB + S3 | Floci-emulated DynamoDB + S3 (same `DynamoS3ProjectStore`) |
 | **Fallback** | Frontend polls if WebSocket drops | Same |
 
 ### Frontend Resilience
@@ -592,7 +592,7 @@ graph TB
 | **Authentication** | Cognito JWT (MFA required) |
 | **Multi-tenancy** | `tenant_id` extracted from JWT; all DB queries scoped |
 | **Encryption at rest** | KMS (DynamoDB, S3, SQS) |
-| **Encryption in transit** | TLS 1.3 (ALB, CloudFront, VPC endpoints) |
+| **Encryption in transit** | TLS 1.2+ (ALB, CloudFront, VPC endpoints) |
 | **Network isolation** | Private subnets for ECS; VPC endpoints for AWS services |
 | **IaC security** | Checkov + cfn-guard validate generated templates |
 | **Rate limiting** | `slowapi` on FastAPI routes |
@@ -603,12 +603,12 @@ graph TB
 ## 14. Local Development
 
 ```bash
-./dev.sh   # Starts backend (port 8000) + frontend (port 3000)
+./dev.sh   # Starts Floci + backend (port 8000) + frontend (port 3000) + notification worker
 ```
 
 In local mode:
-- **No SQS/Lambda** — tasks process in-thread via background worker
-- **No DynamoDB** — state stored as local JSON files
+- **No real SQS/Lambda** — tasks process via local background worker polling Floci SQS queues
+- **DynamoDB via Floci** — same `DynamoS3ProjectStore` backed by Floci-emulated DynamoDB + S3
 - **No Bedrock KB** — `LocalKBProvider` uses TF-IDF on `knowledge-base/` directory
 - **Bedrock LLM** — still required (configure AWS credentials)
 

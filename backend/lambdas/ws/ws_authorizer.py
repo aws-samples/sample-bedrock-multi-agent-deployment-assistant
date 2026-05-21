@@ -92,15 +92,22 @@ def handler(event, context):
         if not _POOL_ID_PATTERN.match(pool_id):
             raise ValueError(f"Invalid pool ID format: {pool_id[:40]}")
 
-        from jose import jwt as jose_jwt, JWTError
+        import jwt as pyjwt
+        from jwt import InvalidTokenError
 
         jwks = _get_jwks(pool_id, region)
         if not jwks:
             raise ValueError("Unable to fetch JWKS")
 
         issuer = f"https://cognito-idp.{region}.amazonaws.com/{pool_id}"
-        payload = jose_jwt.decode(
-            token, jwks, algorithms=["RS256"], audience=client_id, issuer=issuer
+        jwk_set = pyjwt.PyJWKSet.from_dict(jwks)
+        unverified_header = pyjwt.get_unverified_header(token)
+        kid = unverified_header.get("kid")
+        if not kid:
+            raise ValueError("JWT header missing 'kid'")
+        signing_key = jwk_set[kid]
+        payload = pyjwt.decode(
+            token, signing_key.key, algorithms=["RS256"], audience=client_id, issuer=issuer
         )
 
         exp = payload.get("exp", 0)

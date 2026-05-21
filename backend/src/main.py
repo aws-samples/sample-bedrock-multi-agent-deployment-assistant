@@ -24,7 +24,9 @@ from src.config.circuit_breaker import CircuitOpenError
 from src.config.observability import new_correlation_id, setup_logging
 from src.config.settings import settings
 from src.models.requirements import InterviewOutput
+from src.routes.auth import router as auth_router
 from src.routes.config import router as config_router
+from src.routes.errors import router as errors_router
 from src.routes.export import router as export_router
 from src.routes.iac import router as iac_router
 from src.routes.projects import router as projects_router
@@ -55,20 +57,31 @@ def _get_client_ip(request: Request) -> str:
 
 
 def _get_rate_limit_key(request: Request) -> str:
-    """Rate-limit by client IP, with token hash as a differentiator.
+    """Rate-limit by stable user identity to prevent bypass via token refresh.
 
-    Uses the client IP as the primary rate-limit key. When a JWT Bearer token
-    is present, a hash of the token itself (not decoded claims) is used to
-    differentiate users behind the same IP. This avoids trusting unverified
-    JWT payloads which could be forged to get fresh rate-limit buckets.
+    When a JWT Bearer token is present, extracts the 'sub' claim (stable user
+    identifier) from the unverified payload for rate limiting. Using 'sub' rather
+    than a token hash ensures the same user gets the same bucket regardless of
+    token refresh. Full JWT verification still happens in the auth dependency.
+    Falls back to client IP for unauthenticated requests.
     """
-    import hashlib
+    import base64
+    import json
 
     ip = _get_client_ip(request)
     auth_header = request.headers.get("authorization", "")
     if auth_header.startswith("Bearer ") and len(auth_header) > 50:
-        token_hash = hashlib.sha256(auth_header[7:].encode()).hexdigest()[:16]
-        return f"token:{token_hash}"
+        try:
+            token = auth_header[7:]
+            parts = token.split(".")
+            if len(parts) == 3:
+                payload_b64 = parts[1] + "=" * (4 - len(parts[1]) % 4)
+                payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+                sub = payload.get("sub")
+                if sub and len(sub) <= 128:
+                    return f"user:{sub}"
+        except Exception:
+            pass
     return ip
 
 
@@ -95,12 +108,14 @@ async def lifespan(application: FastAPI):
     from src.services.ws_manager import set_loop as _ws_set_loop
     _ws_set_loop(asyncio.get_running_loop())
 
-    # Start the local async worker when any SQS queue is not configured
-    _local_worker_active = (
-        not settings.sqs_design_queue_url
-        or not settings.sqs_iac_queue_url
-        or not settings.sqs_docs_queue_url
+    # Start the local async worker when any SQS queue is not configured,
+    # OR when running against Floci (endpoint_url set) with SQS queues configured
+    _has_all_queues = (
+        settings.sqs_design_queue_url
+        and settings.sqs_iac_queue_url
+        and settings.sqs_docs_queue_url
     )
+    _local_worker_active = not _has_all_queues or bool(settings.aws_endpoint_url)
     if _local_worker_active:
         from src.workers.local_worker import startup as start_worker
         start_worker()
@@ -148,18 +163,20 @@ elif "*" in settings.cors_origins:
         "Restrict to specific origins for production deployments."
     )
 
-# Warn if using AWS storage without authentication
-if settings.storage_backend == "aws" and not settings.cognito_user_pool_id:
+# Warn if using DynamoDB without authentication
+if not settings.cognito_user_pool_id:
     logger.critical(
-        "SECURITY WARNING: AWS storage backend is active but Cognito authentication "
-        "is NOT configured. Tenant isolation is NOT enforced. This configuration "
-        "MUST NOT be used in production."
+        "SECURITY WARNING: Cognito authentication is NOT configured. "
+        "Tenant isolation is NOT enforced. "
+        "This configuration MUST NOT be used in production."
     )
 
+app.include_router(auth_router)
 app.include_router(projects_router)
 app.include_router(export_router)
 app.include_router(config_router)
 app.include_router(iac_router)
+app.include_router(errors_router)
 
 MAX_REQUEST_BODY_BYTES = 1_048_576  # 1 MB
 
@@ -203,6 +220,9 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'none'; frame-ancestors 'none'"
+    )
     # HSTS only when not in local dev (local uses HTTP)
     if settings.cognito_user_pool_id:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
@@ -313,17 +333,16 @@ async def _run_health_checks() -> dict[str, str]:
     # --- DynamoDB / storage ---
     try:
         store = get_store()
-        if settings.storage_backend == "aws":
-            await asyncio.to_thread(store.list_projects, "__healthcheck__")
+        await asyncio.to_thread(store.list_projects, "__healthcheck__")
         checks["storage"] = "ok"
     except Exception as exc:
         checks["storage"] = f"error: {type(exc).__name__}"
 
     # --- Bedrock ---
     try:
-        import boto3
+        from src.config.aws import aws_client as _aws_client
 
-        bedrock = boto3.client("bedrock", region_name=settings.aws_region)
+        bedrock = _aws_client("bedrock")
         await asyncio.to_thread(
             bedrock.list_foundation_models, byProvider="anthropic"
         )
@@ -678,14 +697,59 @@ async def regenerate_docs_section(
 
 
 # ---------------------------------------------------------------------------
+# Internal endpoint — local notification worker posts WS messages here
+# ---------------------------------------------------------------------------
+
+if settings.debug:
+    @app.post("/internal/ws-notify")
+    async def internal_ws_notify(body: dict):
+        """Accept notification from local DDB stream worker and broadcast via WebSocket."""
+        from src.services import ws_manager
+        ws_manager.notify(body["tenant_id"], body["project_id"], body["message"])
+        return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
 # WebSocket endpoint — local dev mirror of API Gateway WS protocol
 # ---------------------------------------------------------------------------
 
 
+def _authenticate_ws_token(token: str | None) -> str:
+    """Validate WS connection token and return tenant_id.
+
+    When Cognito is configured, verifies the JWT and extracts tenant_id.
+    When not configured (local dev), returns "default".
+    """
+    if not settings.cognito_user_pool_id or not settings.cognito_client_id:
+        return "default"
+
+    if not token:
+        raise ValueError("Token required when authentication is enabled")
+
+    from src.config.auth import _decode_jwt_payload, _lookup_tenant_id
+    payload = _decode_jwt_payload(token)
+    tenant_id = payload.get("custom:tenant_id")
+    if not tenant_id and settings.aws_endpoint_url:
+        tenant_id = _lookup_tenant_id(payload.get("username") or payload.get("cognito:username", ""))
+    return tenant_id or "default"
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
-    """Local WebSocket endpoint matching the API Gateway subscribe/notify protocol."""
+    """Local WebSocket endpoint matching the API Gateway subscribe/notify protocol.
+
+    When Cognito is configured, requires a valid JWT token as a query parameter
+    and enforces that subscriptions match the token's tenant_id.
+    """
     from src.services import ws_manager
+
+    token = ws.query_params.get("token")
+    try:
+        authenticated_tenant = _authenticate_ws_token(token)
+    except (ValueError, Exception) as e:
+        logger.warning("WS connection rejected: %s", e)
+        await ws.close(code=4001, reason="Authentication failed")
+        return
 
     await ws.accept()
     try:
@@ -701,6 +765,13 @@ async def websocket_endpoint(ws: WebSocket):
                     validate_safe_id(project_id, "project_id")
                 except ValueError:
                     logger.warning("WS subscribe rejected: invalid tenant_id or project_id")
+                    continue
+                # Enforce tenant isolation: subscriptions must match authenticated tenant
+                if settings.cognito_user_pool_id and tenant_id != authenticated_tenant:
+                    logger.warning(
+                        "WS subscribe rejected: tenant mismatch (token=%s, requested=%s)",
+                        authenticated_tenant, tenant_id,
+                    )
                     continue
                 ws_manager.subscribe(ws, tenant_id, project_id)
     except WebSocketDisconnect:

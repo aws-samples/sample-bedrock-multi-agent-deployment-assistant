@@ -26,29 +26,35 @@ def handler(event, context):
     connection_id = event["requestContext"]["connectionId"]
     logger.info("WebSocket connect: %s", connection_id)
 
-    # Extract authenticated tenant_id from authorizer context (if present).
-    # This is populated when a Cognito or Lambda authorizer is attached to $connect.
-    authorizer = event.get("requestContext", {}).get("authorizer", {})
-    auth_tenant_id = (
-        authorizer.get("custom:tenant_id")
-        or authorizer.get("tenant_id")
-        or ""
-    )
+    try:
+        # Extract authenticated tenant_id from authorizer context (if present).
+        # This is populated when a Cognito or Lambda authorizer is attached to $connect.
+        authorizer = event.get("requestContext", {}).get("authorizer", {})
+        auth_tenant_id = (
+            authorizer.get("custom:tenant_id")
+            or authorizer.get("tenant_id")
+            or ""
+        )
 
-    table = boto3.resource("dynamodb").Table(os.environ["DYNAMODB_TABLE"])
-    now = datetime.now(UTC)
+        table = boto3.resource("dynamodb").Table(os.environ["DYNAMODB_TABLE"])
+        now = datetime.now(UTC)
 
-    item = {
-        "pk": f"WS#{connection_id}",
-        "sk": "CONNECTION",
-        "connection_id": connection_id,
-        "connected_at": now.isoformat(),
-        "ttl": int((now + timedelta(hours=2)).timestamp()),
-    }
-    if auth_tenant_id:
-        item["auth_tenant_id"] = auth_tenant_id
-        logger.info("Stored auth_tenant_id=%s for connection %s", auth_tenant_id, connection_id)
+        item = {
+            "pk": f"WS#{connection_id}",
+            "sk": "CONNECTION",
+            "gsi2pk": "WS_CONNECTIONS",
+            "gsi2sk": f"CONN#{connection_id}",
+            "connection_id": connection_id,
+            "connected_at": now.isoformat(),
+            "ttl": int((now + timedelta(hours=2)).timestamp()),
+        }
+        if auth_tenant_id:
+            item["auth_tenant_id"] = auth_tenant_id
+            logger.info("Stored auth_tenant_id=%s for connection %s", auth_tenant_id, connection_id)
 
-    table.put_item(Item=item)
+        table.put_item(Item=item)
 
-    return {"statusCode": 200}
+        return {"statusCode": 200}
+    except Exception:
+        logger.exception("WebSocket connect failed for %s", connection_id)
+        return {"statusCode": 500, "body": "Internal error"}

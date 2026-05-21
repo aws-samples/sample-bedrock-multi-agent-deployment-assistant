@@ -7,11 +7,13 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     # AWS
-    aws_region: str = "us-east-1"
+    aws_region: str = "us-west-2"
+    aws_endpoint_url: Optional[str] = None
+    aws_profile: Optional[str] = None  # Profile for real AWS calls (Bedrock, KB)
 
     # Bedrock Models
-    primary_model_id: str = "us.anthropic.claude-sonnet-4-20250514-v1:0"
-    lightweight_model_id: str = "us.anthropic.claude-haiku-3-20250310-v1:0"
+    primary_model_id: str = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    lightweight_model_id: str = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 
     # Bedrock Token Limits
     max_tokens: int = 16384          # Generation agents (design, docs)
@@ -31,6 +33,9 @@ class Settings(BaseSettings):
     # Bedrock Knowledge Base
     knowledge_base_id: Optional[str] = None
     knowledge_base_local_path: Optional[str] = None  # Path to local KB docs (dev fallback)
+
+    # Bedrock AgentCore Memory (empty = disabled, agents work statelessly)
+    agentcore_memory_id: Optional[str] = None
 
     # Bedrock Guardrails
     guardrail_id: Optional[str] = None
@@ -73,9 +78,6 @@ class Settings(BaseSettings):
     checkov_skip_checks: list[str] = []  # Checkov check IDs to skip (e.g., ["CKV_AWS_23"])
     cfn_guard_binary: str = "cfn-guard"  # Path to cfn-guard CLI binary
 
-    # Storage
-    storage_backend: str = "local"  # "local" or "aws"
-    session_storage_dir: str = ".local-data/sessions"  # FileSessionManager storage
 
     # Server
     host: str = "0.0.0.0"  # nosec B104 -- required for Docker/container environments

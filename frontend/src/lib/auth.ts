@@ -14,9 +14,15 @@ export interface AuthState {
 const COGNITO_DOMAIN = process.env.NEXT_PUBLIC_COGNITO_DOMAIN || "";
 const COGNITO_CLIENT_ID = process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID || "";
 const COGNITO_REDIRECT_URI = process.env.NEXT_PUBLIC_COGNITO_REDIRECT_URI || "";
+const AUTH_ENABLED = process.env.NEXT_PUBLIC_AUTH_ENABLED !== "false";
 
 export function isLocalMode(): boolean {
-  return !COGNITO_DOMAIN || !COGNITO_CLIENT_ID;
+  if (!AUTH_ENABLED) return true;
+  return false;
+}
+
+export function isHostedUI(): boolean {
+  return !!COGNITO_DOMAIN && !!COGNITO_CLIENT_ID;
 }
 
 export function getStoredToken(): string | null {
@@ -46,6 +52,19 @@ export function parseTenantFromToken(token: string): string {
     return decoded["custom:tenant_id"] || decoded.sub || "default";
   } catch {
     return "default";
+  }
+}
+
+export function getTokenExpiryMs(token: string): number | null {
+  try {
+    const payload = token.split(".")[1];
+    const decoded = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+    if (typeof decoded.exp === "number") {
+      return decoded.exp * 1000 - Date.now();
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
 

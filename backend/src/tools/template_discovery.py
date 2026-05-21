@@ -11,7 +11,6 @@ import logging
 import threading
 import time
 
-import boto3
 from botocore.exceptions import ClientError, EndpointConnectionError
 from pydantic import BaseModel
 
@@ -129,7 +128,8 @@ def discover_templates(
     logger.info("discover_templates: scanning bucket=%s use_cases=%s", bucket, use_cases)
 
     try:
-        s3_client = boto3.client("s3", region_name=settings.aws_region)
+        from src.config.aws import aws_client
+        s3_client = aws_client("s3")
         result: dict[str, list[TemplateInfo]] = {}
 
         for use_case in use_cases:

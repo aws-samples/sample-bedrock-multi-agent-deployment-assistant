@@ -72,7 +72,7 @@ function Dashboard() {
     }, 5_000);
 
     return () => clearInterval(id);
-  }, [hasActiveTasks, designingProjectId, generatingIaCProjectId]);
+  }, [hasActiveTasks, designingProjectId, generatingIaCProjectId, tenantId]);
 
   const fetchProjects = useCallback(async () => {
     try {

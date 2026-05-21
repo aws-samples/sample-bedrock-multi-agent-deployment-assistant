@@ -29,7 +29,10 @@ async function ensureMermaidInit(): Promise<void> {
     });
 
     mermaidInitialized = true;
-  })();
+  })().catch((err) => {
+    initPromise = null;
+    throw err;
+  });
 
   return initPromise;
 }
@@ -62,6 +65,7 @@ export function MermaidRenderer({ code }: MermaidRendererProps) {
           const cleanSvg = DOMPurify.sanitize(svg, {
             USE_PROFILES: { svg: true, svgFilters: true },
             ADD_TAGS: ["use"],
+            FORBID_ATTR: ["xlink:href"],
           });
           setSvgHtml(cleanSvg);
           setError(null);

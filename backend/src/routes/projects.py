@@ -1,8 +1,9 @@
 """Project management API routes."""
 
 import logging
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from src.config.auth import get_tenant_id
@@ -39,9 +40,13 @@ def create_project(req: CreateProjectRequest, tenant_id: str = Depends(get_tenan
 
 
 @router.get("")
-def list_projects(tenant_id: str = Depends(get_tenant_id)):
-    """List all projects for a tenant."""
-    return list_projects_service(tenant_id)
+def list_projects(
+    tenant_id: str = Depends(get_tenant_id),
+    limit: int = Query(default=50, ge=1, le=200),
+    cursor: Optional[str] = Query(default=None),
+):
+    """List projects for a tenant with pagination."""
+    return list_projects_service(tenant_id, limit=limit, cursor=cursor)
 
 
 @router.get("/{project_id}")

@@ -24,7 +24,7 @@ AiDeployStack
 ├── S3Construct           # 3 buckets (knowledge base, artifacts, access logs)
 ├── CognitoConstruct      # User authentication (email + MFA)
 ├── SqsConstruct          # 3 FIFO queues + 3 DLQs (design, IaC, docs)
-├── LambdaConstruct       # 8 Lambda functions (3 workers + 5 WebSocket handlers)
+├── LambdaConstruct       # 9 Lambda functions (3 workers + 6 WebSocket/notification handlers)
 ├── WebSocketConstruct    # API Gateway WebSocket for real-time updates
 ├── EventBridgePipeConstruct  # DynamoDB streams → notification Lambda
 ├── CloudFrontConstruct   # S3 + CloudFront for frontend static hosting
@@ -42,7 +42,7 @@ AiDeployStack
 | **S3** | `lib/s3.ts` | Knowledge base (versioned, RETAIN), artifacts (90-day lifecycle, DESTROY), access logs |
 | **Cognito** | `lib/cognito.ts` | User pool (email, MFA required), web client (SRP auth), custom `tenant_id` attribute |
 | **SQS** | `lib/sqs.ts` | 3 FIFO queues (design/IaC/docs) + 3 DLQs, KMS encrypted, content-based dedup |
-| **Lambda** | `lib/lambda.ts` | 3 Docker workers (design/IaC/docs from SQS), 5 WebSocket handlers (Python 3.12) |
+| **Lambda** | `lib/lambda.ts` | 3 Docker workers (design/IaC/docs from SQS), 6 WebSocket/notification handlers (authorizer, connect, disconnect, subscribe, notification bridge, heartbeat) |
 | **WebSocket** | `lib/websocket.ts` | API Gateway WebSocket (`$connect`, `$disconnect`, `subscribe` routes) |
 | **EventBridge** | `lib/eventbridge-pipe.ts` | DynamoDB stream → Lambda, filters for TASK# status changes |
 | **CloudFront** | `lib/cloudfront.ts` | S3 origin with OAC, SPA fallback, security headers, HTTPS |
@@ -103,7 +103,7 @@ After deployment, the stack exports:
 ## Security
 
 - **Encryption at rest**: KMS customer-managed key (DynamoDB, S3, CloudWatch, SNS, SQS)
-- **Encryption in transit**: TLS 1.3 on ALB (with certificate), HTTPS on CloudFront, SSL enforced on S3
+- **Encryption in transit**: TLS 1.2+ on ALB (with certificate), HTTPS on CloudFront, SSL enforced on S3
 - **Network**: ECS in private subnets, VPC endpoints for AWS services, NAT for outbound
 - **WAF**: AWS managed rule groups (common + known bad inputs) + IP rate limiting (1000/5min)
 - **Auth**: Cognito MFA required, 12-char password policy, SRP auth only

@@ -3,19 +3,27 @@
 import json
 import logging
 from datetime import UTC, datetime
+from decimal import Decimal
 
-import boto3
 from botocore.exceptions import ClientError
 
+from src.config.aws import aws_client, aws_resource, s3_encryption_kwargs
 from src.config.settings import settings
 from src.models.design import DesignTask
 from src.models.docs import DocsTask
 from src.models.iac import IaCTask
 from src.models.project import Project
-from src.storage.protocol import STEP_NEXT_MAP, STEP_STATUS_MAP, VALID_STEPS
+from src.storage.protocol import STEP_NEXT_MAP, STEP_STATUS_MAP, VALID_STEPS, ActiveTaskConflictError
 from src.utils.validation import validate_safe_id
 
 logger = logging.getLogger(__name__)
+
+
+def _json_serial(obj):
+    if isinstance(obj, Decimal):
+        return int(obj) if obj % 1 == 0 else float(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
 
 # Steps where data is small enough for DynamoDB inline storage
 INLINE_STEPS = {"requirements", "design"}
@@ -27,9 +35,9 @@ class DynamoS3ProjectStore:
     """DynamoDB single-table + S3 for large outputs."""
 
     def __init__(self):
-        self._ddb = boto3.resource("dynamodb", region_name=settings.aws_region)
+        self._ddb = aws_resource("dynamodb")
         self._table = self._ddb.Table(settings.dynamodb_table)
-        self._s3 = boto3.client("s3", region_name=settings.aws_region)
+        self._s3 = aws_client("s3")
 
     def _pk(self, tenant_id: str) -> str:
         validate_safe_id(tenant_id, "tenant_id")
@@ -82,22 +90,41 @@ class DynamoS3ProjectStore:
         item = resp.get("Item")
         return self._item_to_project(item) if item else None
 
-    def list_projects(self, tenant_id: str) -> list[Project]:
-        projects = []
-        query_params = {
+    def list_projects(
+        self, tenant_id: str, limit: int = 50, cursor: str | None = None,
+    ) -> tuple[list[Project], str | None]:
+        import base64
+
+        query_params: dict = {
             "IndexName": "GSI1",
             "KeyConditionExpression": "gsi1pk = :pk",
             "ExpressionAttributeValues": {":pk": self._pk(tenant_id)},
             "ScanIndexForward": False,
+            "Limit": limit,
         }
-        while True:
-            resp = self._table.query(**query_params)
-            projects.extend(self._item_to_project(item) for item in resp.get("Items", []))
-            last_key = resp.get("LastEvaluatedKey")
-            if not last_key:
-                break
-            query_params["ExclusiveStartKey"] = last_key
-        return projects
+        if cursor:
+            try:
+                query_params["ExclusiveStartKey"] = json.loads(
+                    base64.urlsafe_b64decode(cursor)
+                )
+            except (ValueError, KeyError):
+                pass
+
+        resp = self._table.query(**query_params)
+        projects = [
+            self._item_to_project(item)
+            for item in resp.get("Items", [])
+            if item.get("sk", "").startswith("PROJECT#")
+        ]
+
+        next_cursor = None
+        last_key = resp.get("LastEvaluatedKey")
+        if last_key:
+            next_cursor = base64.urlsafe_b64encode(
+                json.dumps(last_key).encode()
+            ).decode()
+
+        return projects, next_cursor
 
     def delete_project(self, tenant_id: str, project_id: str) -> None:
         self._table.delete_item(
@@ -151,6 +178,36 @@ class DynamoS3ProjectStore:
             },
         )
 
+    def claim_active_task(
+        self, tenant_id: str, project_id: str, slot: str, task_id: str,
+    ) -> None:
+        """Atomically claim an active task slot using a DynamoDB conditional write.
+
+        Only succeeds if the slot is currently None/empty. Raises
+        ActiveTaskConflictError if another task already occupies the slot.
+        """
+        now = datetime.now(UTC).isoformat()
+        try:
+            self._table.update_item(
+                Key={"pk": self._pk(tenant_id), "sk": self._sk(project_id)},
+                UpdateExpression="SET #slot = :tid, updated_at = :now",
+                ConditionExpression=(
+                    "attribute_not_exists(#slot) OR #slot = :empty"
+                ),
+                ExpressionAttributeNames={"#slot": slot},
+                ExpressionAttributeValues={
+                    ":tid": task_id,
+                    ":empty": None,
+                    ":now": now,
+                },
+            )
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                raise ActiveTaskConflictError(
+                    f"Slot '{slot}' is already occupied for project {project_id}"
+                ) from e
+            raise
+
     def save_step(self, tenant_id: str, project_id: str, step: str, data: dict, *, advance: bool = True) -> None:
         if step not in VALID_STEPS:
             raise ValueError(f"Invalid step: {step}")
@@ -182,7 +239,7 @@ class DynamoS3ProjectStore:
                     "#st": "status",
                 },
                 ExpressionAttributeValues={
-                    ":data": json.dumps(data),
+                    ":data": json.dumps(data, default=_json_serial),
                     ":status": new_status.value,
                     ":cs": new_step,
                     ":gsi": f"STATUS#{new_status.value}#{now}",
@@ -195,7 +252,7 @@ class DynamoS3ProjectStore:
                 UpdateExpression="SET #step_data = :data, updated_at = :now",
                 ExpressionAttributeNames={"#step_data": f"{step}_json"},
                 ExpressionAttributeValues={
-                    ":data": json.dumps(data),
+                    ":data": json.dumps(data, default=_json_serial),
                     ":now": now,
                 },
             )
@@ -212,9 +269,9 @@ class DynamoS3ProjectStore:
         self._s3.put_object(
             Bucket=settings.s3_artifacts_bucket,
             Key=s3_key,
-            Body=json.dumps(data).encode("utf-8"),
+            Body=json.dumps(data, default=_json_serial).encode("utf-8"),
             ContentType="application/json",
-            ServerSideEncryption="aws:kms",
+            **s3_encryption_kwargs(),
         )
 
         try:

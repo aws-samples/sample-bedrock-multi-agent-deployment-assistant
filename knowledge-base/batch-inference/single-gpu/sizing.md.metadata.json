@@ -1,0 +1,7 @@
+{
+  "metadataAttributes": {
+    "use_case": "batch-inference",
+    "deployment_type": "single-gpu",
+    "document_type": "sizing"
+  }
+}

@@ -5,6 +5,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 /* ------------------------------------------------------------------ */
 vi.mock("@/lib/auth", () => ({
   getStoredToken: vi.fn(() => null),
+  isLocalMode: vi.fn(() => true),
+  clearAuth: vi.fn(),
+  buildLoginUrl: vi.fn(() => "https://cognito.test/login"),
 }));
 
 /* Dynamic import so the mock is active when the module initialises */

@@ -28,6 +28,7 @@ cdk.out/
 # Environment files
 .env
 .env.local
+.env.dev
 .env.*.local
 
 # IDE
@@ -61,3 +62,6 @@ temp/
 .claude/
 .mcp.json
 plans/
+PRODUCTION_READINESS_AUDIT.md
+.floci-data/
+memory/

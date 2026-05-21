@@ -1,0 +1,45 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Standard outputs for inference deployments
+
+Parameters:
+  VPCId:
+    Type: String
+  ALBDNSName:
+    Type: String
+  ALBArn:
+    Type: String
+  AutoScalingGroupName:
+    Type: String
+  InferenceSecurityGroupId:
+    Type: String
+
+Outputs:
+  VPCId:
+    Description: VPC ID
+    Value: !Ref VPCId
+    Export:
+      Name: !Sub "${AWS::StackName}-VpcId"
+
+  ALBEndpoint:
+    Description: ALB DNS name for inference endpoint
+    Value: !Ref ALBDNSName
+    Export:
+      Name: !Sub "${AWS::StackName}-ALBEndpoint"
+
+  ALBArn:
+    Description: ALB ARN
+    Value: !Ref ALBArn
+    Export:
+      Name: !Sub "${AWS::StackName}-ALBArn"
+
+  AutoScalingGroupName:
+    Description: Auto Scaling group name
+    Value: !Ref AutoScalingGroupName
+    Export:
+      Name: !Sub "${AWS::StackName}-ASGName"
+
+  InferenceSecurityGroupId:
+    Description: Inference instance security group
+    Value: !Ref InferenceSecurityGroupId
+    Export:
+      Name: !Sub "${AWS::StackName}-InferenceSG"

@@ -23,6 +23,11 @@ export interface LambdaConstructProps {
   encryptionKey: kms.IKey;
   /** VPC for worker Lambdas (enables use of VPC endpoints for Bedrock). */
   vpc?: ec2.IVpc;
+  /** Bedrock model and feature IDs — passed explicitly from the stack. */
+  primaryModelId?: string;
+  lightweightModelId?: string;
+  knowledgeBaseId?: string;
+  agentcoreMemoryId?: string;
 }
 
 export class LambdaConstruct extends Construct {
@@ -70,6 +75,24 @@ export class LambdaConstruct extends Construct {
       file: "Dockerfile.lambda",
     });
 
+    // Shared environment variables for all worker Lambdas
+    const workerBaseEnv: Record<string, string> = {
+      AI_DEPLOY_DYNAMODB_TABLE: props.table.tableName,
+      AI_DEPLOY_S3_ARTIFACTS_BUCKET: props.artifactsBucket.bucketName,
+      AI_DEPLOY_S3_KNOWLEDGE_BASE_BUCKET: props.knowledgeBaseBucket.bucketName,
+    };
+
+    // Model IDs and KB ID passed as explicit props from the parent stack
+    const modelEnvVars: Record<string, string> = {};
+    if (props.primaryModelId) modelEnvVars["AI_DEPLOY_PRIMARY_MODEL_ID"] = props.primaryModelId;
+    if (props.lightweightModelId) modelEnvVars["AI_DEPLOY_LIGHTWEIGHT_MODEL_ID"] = props.lightweightModelId;
+    if (props.knowledgeBaseId) modelEnvVars["AI_DEPLOY_KNOWLEDGE_BASE_ID"] = props.knowledgeBaseId;
+    if (props.agentcoreMemoryId) modelEnvVars["AI_DEPLOY_AGENTCORE_MEMORY_ID"] = props.agentcoreMemoryId;
+
+    const kbResourceArn = props.knowledgeBaseId
+      ? `arn:aws:bedrock:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:knowledge-base/${props.knowledgeBaseId}`
+      : `arn:aws:bedrock:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:knowledge-base/*`;
+
     this.designWorker = new lambda.DockerImageFunction(this, "DesignWorker", {
       functionName: "ai-deploy-design-worker",
       code: lambda.DockerImageCode.fromEcr(designWorkerImage.repository, {
@@ -77,12 +100,7 @@ export class LambdaConstruct extends Construct {
       }),
       memorySize: 2048,
       timeout: cdk.Duration.minutes(5),
-      environment: {
-        AI_DEPLOY_DYNAMODB_TABLE: props.table.tableName,
-        AI_DEPLOY_S3_ARTIFACTS_BUCKET: props.artifactsBucket.bucketName,
-        AI_DEPLOY_S3_KNOWLEDGE_BASE_BUCKET: props.knowledgeBaseBucket.bucketName,
-        AI_DEPLOY_STORAGE_BACKEND: "aws",
-      },
+      environment: { ...workerBaseEnv, ...modelEnvVars },
       logGroup: designWorkerLogGroup,
       ...workerVpcConfig,
     });
@@ -117,9 +135,7 @@ export class LambdaConstruct extends Construct {
           "bedrock-agent-runtime:Retrieve",
           "bedrock-agent-runtime:RetrieveAndGenerate",
         ],
-        resources: [
-          `arn:aws:bedrock:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:knowledge-base/*`,
-        ],
+        resources: [kbResourceArn],
       }),
     );
 
@@ -134,6 +150,31 @@ export class LambdaConstruct extends Construct {
         },
       }),
     );
+
+    // AgentCore Memory — cross-session persistent memory (conditional)
+    const agentcoreMemoryPolicy = props.agentcoreMemoryId
+      ? new iam.PolicyStatement({
+          sid: "AgentCoreMemoryData",
+          actions: [
+            "bedrock-agentcore:CreateEvent",
+            "bedrock-agentcore:ListEvents",
+            "bedrock-agentcore:DeleteEvent",
+            "bedrock-agentcore:RetrieveMemoryRecords",
+            "bedrock-agentcore:ListMemoryRecords",
+            "bedrock-agentcore:GetMemoryRecord",
+            "bedrock-agentcore:BatchCreateMemoryRecords",
+            "bedrock-agentcore:StartMemoryExtractionJob",
+            "bedrock-agentcore:ListSessions",
+          ],
+          resources: [
+            `arn:aws:bedrock-agentcore:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:memory/${props.agentcoreMemoryId}`,
+          ],
+        })
+      : null;
+
+    if (agentcoreMemoryPolicy) {
+      this.designWorker.addToRolePolicy(agentcoreMemoryPolicy);
+    }
 
     // DynamoDB + S3 access for design worker
     props.table.grantReadWriteData(this.designWorker);
@@ -210,10 +251,8 @@ export class LambdaConstruct extends Construct {
       memorySize: 2048,
       timeout: cdk.Duration.minutes(15),
       environment: {
-        AI_DEPLOY_DYNAMODB_TABLE: props.table.tableName,
-        AI_DEPLOY_S3_ARTIFACTS_BUCKET: props.artifactsBucket.bucketName,
-        AI_DEPLOY_S3_KNOWLEDGE_BASE_BUCKET: props.knowledgeBaseBucket.bucketName,
-        AI_DEPLOY_STORAGE_BACKEND: "aws",
+        ...workerBaseEnv,
+        ...modelEnvVars,
         AI_DEPLOY_CFN_GUARD_BINARY: "/usr/local/bin/cfn-guard",
       },
       logGroup: iacWorkerLogGroup,
@@ -250,9 +289,7 @@ export class LambdaConstruct extends Construct {
           "bedrock-agent-runtime:Retrieve",
           "bedrock-agent-runtime:RetrieveAndGenerate",
         ],
-        resources: [
-          `arn:aws:bedrock:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:knowledge-base/*`,
-        ],
+        resources: [kbResourceArn],
       }),
     );
 
@@ -267,6 +304,10 @@ export class LambdaConstruct extends Construct {
         },
       }),
     );
+
+    if (agentcoreMemoryPolicy) {
+      this.iacWorker.addToRolePolicy(agentcoreMemoryPolicy);
+    }
 
     // DynamoDB + S3 access for IaC worker
     props.table.grantReadWriteData(this.iacWorker);
@@ -344,12 +385,7 @@ export class LambdaConstruct extends Construct {
       }),
       memorySize: 2048,
       timeout: cdk.Duration.minutes(10),
-      environment: {
-        AI_DEPLOY_DYNAMODB_TABLE: props.table.tableName,
-        AI_DEPLOY_S3_ARTIFACTS_BUCKET: props.artifactsBucket.bucketName,
-        AI_DEPLOY_S3_KNOWLEDGE_BASE_BUCKET: props.knowledgeBaseBucket.bucketName,
-        AI_DEPLOY_STORAGE_BACKEND: "aws",
-      },
+      environment: { ...workerBaseEnv, ...modelEnvVars },
       logGroup: docsWorkerLogGroup,
       ...workerVpcConfig,
     });
@@ -384,9 +420,7 @@ export class LambdaConstruct extends Construct {
           "bedrock-agent-runtime:Retrieve",
           "bedrock-agent-runtime:RetrieveAndGenerate",
         ],
-        resources: [
-          `arn:aws:bedrock:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:knowledge-base/*`,
-        ],
+        resources: [kbResourceArn],
       }),
     );
 
@@ -401,6 +435,10 @@ export class LambdaConstruct extends Construct {
         },
       }),
     );
+
+    if (agentcoreMemoryPolicy) {
+      this.docsWorker.addToRolePolicy(agentcoreMemoryPolicy);
+    }
 
     // DynamoDB + S3 access for docs worker
     props.table.grantReadWriteData(this.docsWorker);

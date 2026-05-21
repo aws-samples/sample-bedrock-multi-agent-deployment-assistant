@@ -30,8 +30,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Protocol
 
-import boto3
-
+from src.config.aws import aws_client as _aws_client
 from src.config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -101,7 +100,7 @@ class BedrockKBProvider:
     def __init__(self, knowledge_base_id: str, region: str):
         self._kb_id = knowledge_base_id
         self._region = region
-        self._client = boto3.client("bedrock-agent-runtime", region_name=region)
+        self._client = _aws_client("bedrock-agent-runtime")
 
     @property
     def is_available(self) -> bool:
@@ -410,7 +409,3 @@ def get_kb_provider() -> KnowledgeBaseProvider:
     return _provider_instance
 
 
-def reset_kb_provider() -> None:
-    """Reset the singleton — used in tests."""
-    global _provider_instance
-    _provider_instance = None

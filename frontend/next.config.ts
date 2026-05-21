@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+const isDev = process.env.NODE_ENV === "development";
+
 const nextConfig: NextConfig = {
   // Static export for S3 + CloudFront deployment:  NEXT_OUTPUT=export pnpm build
   // When set, generates static files in `out/`. Security headers are handled by CloudFront.
@@ -25,7 +27,7 @@ const nextConfig: NextConfig = {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline'",
+              `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
               "style-src 'self' 'unsafe-inline'",
               `connect-src 'self' ${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"} ${process.env.NEXT_PUBLIC_WEBSOCKET_URL || "ws://localhost:8000"}`,
               "img-src 'self' data: blob:",

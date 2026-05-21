@@ -50,6 +50,7 @@ class PlannedQuestion(BaseModel):
     skip_conditions: list[SkipCondition] = Field(default_factory=list)
     status: QuestionStatus = "pending"
     answered_value: Any = None
+    clarification_attempts: int = Field(0, description="Number of times clarification was requested for this question")
 
 
 # ---------------------------------------------------------------------------

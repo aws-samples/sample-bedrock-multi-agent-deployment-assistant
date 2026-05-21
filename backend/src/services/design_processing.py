@@ -9,6 +9,7 @@ import logging
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
+from decimal import Decimal
 
 from src.models.design import (
     DesignOption,
@@ -20,6 +21,17 @@ from src.storage import get_store
 from src.tools.template_discovery import discover_templates
 
 logger = logging.getLogger(__name__)
+
+
+def _floats_to_decimals(obj: object) -> object:
+    """Recursively convert floats to Decimals for DynamoDB compatibility."""
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    if isinstance(obj, dict):
+        return {k: _floats_to_decimals(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_floats_to_decimals(v) for v in obj]
+    return obj
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +182,7 @@ def process_design_task(
 
     # --- Save result ---
     now = datetime.now(UTC).isoformat()
-    result_dict = recommendation.model_dump()
+    result_dict = _floats_to_decimals(recommendation.model_dump())
 
     store.update_task(tenant_id, task_id, {
         "status": DesignTaskStatus.COMPLETED.value,

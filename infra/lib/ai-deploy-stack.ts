@@ -1,7 +1,7 @@
 import * as cdk from "aws-cdk-lib";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as scheduler from "aws-cdk-lib/aws-scheduler";
-import * as scheduler_targets from "aws-cdk-lib/aws-scheduler-targets";
+import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 import { DynamoDbConstruct } from "./dynamodb";
 import { S3Construct } from "./s3";
@@ -29,6 +29,16 @@ export class AiDeployStack extends cdk.Stack {
     const notificationEmail = this.node.tryGetContext("notificationEmail");
     const natGateways = this.node.tryGetContext("natGateways");
     const certificateArn = this.node.tryGetContext("certificateArn");
+    const knowledgeBaseId = this.node.tryGetContext("knowledgeBaseId") ?? "";
+    const agentcoreMemoryId = this.node.tryGetContext("agentcoreMemoryId") ?? "";
+    const primaryModelId = this.node.tryGetContext("primaryModelId") ?? "";
+    const lightweightModelId = this.node.tryGetContext("lightweightModelId") ?? "";
+
+    if (environment === "prod" && !certificateArn) {
+      throw new Error(
+        "HTTPS certificate (certificateArn context) is required for production deployments.",
+      );
+    }
 
     // Shared resources
     const kmsKey = new KmsConstruct(this, "Kms");
@@ -65,6 +75,10 @@ export class AiDeployStack extends cdk.Stack {
       knowledgeBaseBucket: s3.knowledgeBaseBucket,
       encryptionKey: kmsKey.key,
       vpc: vpc.vpc,
+      primaryModelId,
+      lightweightModelId,
+      knowledgeBaseId,
+      agentcoreMemoryId,
     });
 
     const websocket = new WebSocketConstruct(this, "WebSocket", {
@@ -107,25 +121,49 @@ export class AiDeployStack extends cdk.Stack {
     });
 
     // EventBridge Scheduler: heartbeat every 5 minutes
+    const heartbeatDlq = new sqs.Queue(this, "HeartbeatDlq", {
+      queueName: "ai-deploy-heartbeat-dlq",
+      retentionPeriod: cdk.Duration.days(14),
+      encryption: sqs.QueueEncryption.KMS,
+      encryptionMasterKey: kmsKey.key,
+    });
+
+    const heartbeatSchedulerRole = new iam.Role(this, "HeartbeatSchedulerRole", {
+      assumedBy: new iam.ServicePrincipal("scheduler.amazonaws.com"),
+      inlinePolicies: {
+        InvokeLambda: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              actions: ["lambda:InvokeFunction"],
+              resources: [lambdaConstruct.wsHeartbeat.functionArn],
+            }),
+          ],
+        }),
+        SendToDlq: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              actions: ["sqs:SendMessage"],
+              resources: [heartbeatDlq.queueArn],
+            }),
+          ],
+        }),
+      },
+    });
+
     new scheduler.CfnSchedule(this, "HeartbeatSchedule", {
       name: "ai-deploy-ws-heartbeat",
       scheduleExpression: "rate(5 minutes)",
       flexibleTimeWindow: { mode: "OFF" },
       target: {
         arn: lambdaConstruct.wsHeartbeat.functionArn,
-        roleArn: new iam.Role(this, "HeartbeatSchedulerRole", {
-          assumedBy: new iam.ServicePrincipal("scheduler.amazonaws.com"),
-          inlinePolicies: {
-            InvokeLambda: new iam.PolicyDocument({
-              statements: [
-                new iam.PolicyStatement({
-                  actions: ["lambda:InvokeFunction"],
-                  resources: [lambdaConstruct.wsHeartbeat.functionArn],
-                }),
-              ],
-            }),
-          },
-        }).roleArn,
+        roleArn: heartbeatSchedulerRole.roleArn,
+        deadLetterConfig: {
+          arn: heartbeatDlq.queueArn,
+        },
+        retryPolicy: {
+          maximumRetryAttempts: 2,
+          maximumEventAgeInSeconds: 300,
+        },
       },
     });
 
@@ -140,7 +178,10 @@ export class AiDeployStack extends cdk.Stack {
       knowledgeBaseBucket: s3.knowledgeBaseBucket,
       accessLogsBucket: s3.accessLogsBucket,
       encryptionKey: kmsKey.key,
+      environment,
       certificateArn,
+      knowledgeBaseId: knowledgeBaseId || undefined,
+      agentcoreMemoryId: agentcoreMemoryId || undefined,
     });
 
     // Pass SQS queue URL and WebSocket URL to ECS backend environment
@@ -193,6 +234,36 @@ export class AiDeployStack extends cdk.Stack {
       "true",
     );
 
+    // Knowledge Base ID (empty string = local KB fallback)
+    if (knowledgeBaseId) {
+      ecsConstruct.service.taskDefinition.defaultContainer?.addEnvironment(
+        "AI_DEPLOY_KNOWLEDGE_BASE_ID",
+        knowledgeBaseId,
+      );
+    }
+
+    // Model IDs (empty = use settings.py defaults)
+    if (primaryModelId) {
+      ecsConstruct.service.taskDefinition.defaultContainer?.addEnvironment(
+        "AI_DEPLOY_PRIMARY_MODEL_ID",
+        primaryModelId,
+      );
+    }
+    if (lightweightModelId) {
+      ecsConstruct.service.taskDefinition.defaultContainer?.addEnvironment(
+        "AI_DEPLOY_LIGHTWEIGHT_MODEL_ID",
+        lightweightModelId,
+      );
+    }
+
+    // AgentCore Memory ID (empty = disabled)
+    if (agentcoreMemoryId) {
+      ecsConstruct.service.taskDefinition.defaultContainer?.addEnvironment(
+        "AI_DEPLOY_AGENTCORE_MEMORY_ID",
+        agentcoreMemoryId,
+      );
+    }
+
     // Grant ECS task role permission to send messages to all task queues
     sqsConstruct.designQueue.grantSendMessages(ecsConstruct.service.taskDefinition.taskRole);
     sqsConstruct.iacQueue.grantSendMessages(ecsConstruct.service.taskDefinition.taskRole);
@@ -219,6 +290,13 @@ export class AiDeployStack extends cdk.Stack {
       designDlq: sqsConstruct.designDlq,
       iacDlq: sqsConstruct.iacDlq,
       docsDlq: sqsConstruct.docsDlq,
+      designQueue: sqsConstruct.designQueue,
+      iacQueue: sqsConstruct.iacQueue,
+      docsQueue: sqsConstruct.docsQueue,
+      designWorker: lambdaConstruct.designWorker,
+      iacWorker: lambdaConstruct.iacWorker,
+      docsWorker: lambdaConstruct.docsWorker,
+      distribution: frontend.distribution,
       notificationEmail,
       encryptionKey: kmsKey.key,
     });

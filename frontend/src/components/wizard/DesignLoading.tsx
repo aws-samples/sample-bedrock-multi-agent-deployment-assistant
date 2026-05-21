@@ -100,7 +100,7 @@ export function DesignLoading({ useCaseSummary, taskStatus, taskId }: DesignLoad
 
         {/* Task status badge */}
         {taskStatus && (
-          <div className="px-6 pt-4">
+          <div className="px-6 pt-4" aria-live="polite">
             <div className={`inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium border rounded-full ${taskStatusColor(taskStatus)}`}>
               {taskStatus === "queued" && (
                 <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -167,13 +167,20 @@ export function DesignLoading({ useCaseSummary, taskStatus, taskId }: DesignLoad
         {/* Bottom bar */}
         <div className="px-6 py-4 bg-gray-50 border-t border-gray-100">
           <div className="flex items-center gap-2">
-            <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+            <div
+              className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden"
+              role="progressbar"
+              aria-valuenow={activeStep + 1}
+              aria-valuemin={1}
+              aria-valuemax={STEPS.length}
+              aria-label="Design generation progress"
+            >
               <div
                 className="h-full bg-blue-500 rounded-full transition-all duration-1000 ease-out"
                 style={{ width: `${Math.min(((activeStep + 1) / STEPS.length) * 100, 95)}%` }}
               />
             </div>
-            <span className="text-xs text-gray-400 tabular-nums shrink-0">
+            <span className="text-xs text-gray-400 tabular-nums shrink-0" aria-hidden="true">
               {activeStep + 1} / {STEPS.length}
             </span>
           </div>

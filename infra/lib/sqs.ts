@@ -1,4 +1,5 @@
 import * as cdk from "aws-cdk-lib";
+import * as iam from "aws-cdk-lib/aws-iam";
 import * as kms from "aws-cdk-lib/aws-kms";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as ssm from "aws-cdk-lib/aws-ssm";
@@ -35,7 +36,7 @@ export class SqsConstruct extends Construct {
       fifo: true,
       contentBasedDeduplication: true,
       visibilityTimeout: cdk.Duration.minutes(30),
-      retentionPeriod: cdk.Duration.days(4),
+      retentionPeriod: cdk.Duration.days(7),
       encryption: sqs.QueueEncryption.KMS,
       encryptionMasterKey: props.encryptionKey,
       deadLetterQueue: {
@@ -59,7 +60,7 @@ export class SqsConstruct extends Construct {
       fifo: true,
       contentBasedDeduplication: true,
       visibilityTimeout: cdk.Duration.minutes(90), // 6x Lambda timeout (15 min)
-      retentionPeriod: cdk.Duration.days(4),
+      retentionPeriod: cdk.Duration.days(7),
       encryption: sqs.QueueEncryption.KMS,
       encryptionMasterKey: props.encryptionKey,
       deadLetterQueue: {
@@ -83,7 +84,7 @@ export class SqsConstruct extends Construct {
       fifo: true,
       contentBasedDeduplication: true,
       visibilityTimeout: cdk.Duration.minutes(60), // 6x Lambda timeout (10 min)
-      retentionPeriod: cdk.Duration.days(4),
+      retentionPeriod: cdk.Duration.days(7),
       encryption: sqs.QueueEncryption.KMS,
       encryptionMasterKey: props.encryptionKey,
       deadLetterQueue: {
@@ -91,6 +92,21 @@ export class SqsConstruct extends Construct {
         maxReceiveCount: 3,
       },
     });
+
+    // Enforce TLS in transit — deny any request not using SSL
+    const denyInsecureTransport = new iam.PolicyStatement({
+      sid: "DenyInsecureTransport",
+      effect: iam.Effect.DENY,
+      principals: [new iam.AnyPrincipal()],
+      actions: ["sqs:*"],
+      resources: ["*"],
+      conditions: {
+        Bool: { "aws:SecureTransport": "false" },
+      },
+    });
+    for (const queue of [this.designQueue, this.designDlq, this.iacQueue, this.iacDlq, this.docsQueue, this.docsDlq]) {
+      queue.addToResourcePolicy(denyInsecureTransport);
+    }
 
     // cdk-nag: SQS FIFO queues do not support SSE-SQS; KMS is used instead
     NagSuppressions.addResourceSuppressions(
@@ -104,8 +120,7 @@ export class SqsConstruct extends Construct {
         {
           id: "AwsSolutions-SQS4",
           reason:
-            "SQS FIFO queues are encrypted with a customer-managed KMS key. " +
-            "SSL enforcement is handled at the IAM policy level.",
+            "SSL enforcement is implemented via DenyInsecureTransport resource policy on all queues.",
         },
       ],
       true,

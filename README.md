@@ -43,11 +43,11 @@ See [Local Development Guide](docs/local-development.md) for detailed setup.
 Browser → Next.js Frontend (wizard UI)
            ↓ API calls
          FastAPI Backend (orchestrator)
-           ├── Interview Agent (Haiku) → gathers requirements from user
-           ├── Interview Planner (Sonnet) → plans questions from KB + catalog
-           ├── Design Agent (Sonnet) → generates 3 architecture options
-           ├── IaC Agent (Sonnet) → produces CloudFormation templates
-           └── Documentation Agent (Sonnet) → diagrams, user guide, threat model
+           ├── Interview Planner (Sonnet 4.5) → plans questions from KB + catalog
+           ├── Interview Executor (Haiku 4.5) → gathers requirements from user
+           ├── Design Agent (Sonnet 4.5) → generates 3 architecture options
+           ├── IaC Agent (Sonnet 4.5) → produces CloudFormation templates
+           └── Documentation Agent (Sonnet 4.5) → diagrams + user guide
                     ↕
               Knowledge Base (Bedrock KB or Local files)
               + Catalog Lock File (deterministic field schema)
@@ -67,7 +67,7 @@ Browser → Next.js Frontend (wizard UI)
 1. **Interview** — AI-guided requirements gathering (fields from catalog)
 2. **Design** — 3 architecture options grounded in KB documents
 3. **IaC** — CloudFormation generation (parameterize, compose, or generate)
-4. **Documentation** — Architecture diagram, user guide, threat model
+4. **Documentation** — Architecture diagram and user guide
 
 ### Knowledge Base Provider
 
@@ -84,22 +84,31 @@ The system supports three KB modes (auto-selected by config):
 ```
 ├── config.yaml              # Product identity (hand-edited)
 ├── catalog.lock.yaml        # Generated product schema (committed)
+├── compose.yaml             # Docker Compose for Floci (local AWS emulator)
+├── dev.sh                   # One-command local development startup
 ├── knowledge-base/          # Local KB documents (dev fallback)
 │   ├── realtime-inference/  # use_case/deployment_type/doc_type.md
 │   ├── batch-inference/
 │   └── training/
+├── scripts/                 # Setup and utility scripts
+│   ├── setup-local.sh       # Provision Floci resources (DynamoDB, S3, SQS, Cognito)
+│   ├── setup-bedrock-kb.sh  # Create/configure Bedrock Knowledge Base
+│   └── generate-kb-metadata.sh  # Generate KB sidecar metadata files
 ├── backend/
+│   ├── lambdas/ws/          # WebSocket Lambda handlers (authorizer, connect, etc.)
 │   └── src/
-│       ├── config/          # Settings, catalog schema, app config
-│       ├── agents/          # LLM agent implementations
+│       ├── config/          # Settings, auth, AWS client, metrics, observability
+│       ├── agents/          # LLM agent implementations (interview, design, iac, docs)
 │       ├── models/          # Pydantic data models
-│       ├── services/        # Business logic (catalog loader, KB provider, etc.)
-│       ├── tools/           # Agent tools (KB search, validation)
+│       ├── services/        # Business logic (catalog loader, KB provider, plan cache, etc.)
+│       ├── storage/         # DynamoDB+S3 storage layer
+│       ├── tools/           # Agent tools (KB search, save_artifact, mermaid validator)
 │       ├── prompts/         # Template prompt files ({product_name} variables)
 │       ├── validation/      # cfn-lint, cfn-guard, checkov pipeline
+│       ├── workers/         # SQS Lambda workers + local async worker
 │       └── routes/          # FastAPI endpoints
 ├── frontend/                # Next.js wizard UI
-└── infra/                   # AWS CDK infrastructure
+└── infra/                   # AWS CDK infrastructure (ECS, Lambda, DynamoDB, etc.)
 ```
 
 ## Configuration Reference
@@ -112,11 +121,15 @@ All env vars use the `AI_DEPLOY_` prefix. Key variables:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `AI_DEPLOY_AWS_REGION` | Yes | AWS region for Bedrock and services |
+| `AI_DEPLOY_AWS_REGION` | Yes | AWS region for Bedrock and services (default: `us-west-2`) |
 | `AI_DEPLOY_KNOWLEDGE_BASE_ID` | No | Bedrock KB ID (omit for local KB) |
-| `AI_DEPLOY_STORAGE_BACKEND` | No | `local` (default) or `aws` |
-| `AI_DEPLOY_PRIMARY_MODEL_ID` | No | Bedrock model for design/planning |
-| `AI_DEPLOY_LIGHTWEIGHT_MODEL_ID` | No | Bedrock model for interview execution |
+| `AI_DEPLOY_DYNAMODB_TABLE` | No | DynamoDB table name (default: `ai-deploy-table`) |
+| `AI_DEPLOY_S3_ARTIFACTS_BUCKET` | No | S3 bucket for artifacts (default: `ai-deploy-artifacts`) |
+| `AI_DEPLOY_PRIMARY_MODEL_ID` | No | Bedrock model for design/planning (default: Sonnet 4.5) |
+| `AI_DEPLOY_LIGHTWEIGHT_MODEL_ID` | No | Bedrock model for interview execution (default: Haiku 4.5) |
+| `AI_DEPLOY_COGNITO_USER_POOL_ID` | No | Cognito pool ID (omit for local dev) |
+| `AI_DEPLOY_AGENTCORE_MEMORY_ID` | No | AgentCore Memory ID for cross-session memory |
+| `AI_DEPLOY_DEBUG` | No | Enable debug mode (default: `false`) |
 
 See `backend/.env.sample` for the complete list.
 

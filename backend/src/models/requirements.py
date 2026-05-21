@@ -102,32 +102,6 @@ class UserInformation(BaseModel):
     )
 
 
-class PerformanceRequirements(BaseModel):
-    minLatency: Optional[float] = Field(None, description="Minimum acceptable latency in milliseconds")
-    maxLatency: Optional[float] = Field(None, description="Maximum acceptable latency in milliseconds")
-    minJitter: Optional[float] = Field(None, description="Minimum acceptable jitter in milliseconds")
-    maxJitter: Optional[float] = Field(None, description="Maximum acceptable jitter in milliseconds")
-
-    @model_validator(mode="before")
-    @classmethod
-    def _coerce_string(cls, v: Any) -> Any:
-        """Parse a free-text performance string into structured fields."""
-        if not isinstance(v, str):
-            return v
-        import re
-        data: dict[str, float] = {}
-        _patterns = [
-            (r"latency\s*<\s*(\d+(?:\.\d+)?)\s*ms", "maxLatency"),
-            (r"latency\s*>\s*(\d+(?:\.\d+)?)\s*ms", "minLatency"),
-            (r"jitter\s*<\s*(\d+(?:\.\d+)?)\s*ms", "maxJitter"),
-            (r"jitter\s*>\s*(\d+(?:\.\d+)?)\s*ms", "minJitter"),
-        ]
-        for pattern, key in _patterns:
-            m = re.search(pattern, v, re.IGNORECASE)
-            if m:
-                data[key] = float(m.group(1))
-        return data
-
 
 # ---------------------------------------------------------------------------
 # Use-case spec (backward-compatible interface, now catalog-driven)
@@ -189,21 +163,6 @@ def _get_registry() -> dict[str, UseCaseSpec]:
     return _registry_cache
 
 
-def reset_registry_cache() -> None:
-    """Reset the registry cache — used in tests."""
-    global _registry_cache
-    _registry_cache = None
-
-
-# Backward-compatible name
-USE_CASE_REGISTRY = None  # Type: dict — access via _get_registry() instead
-
-
-def get_model_for_use_case(uc) -> type[BaseModel] | None:
-    """Return the use-case model class, or None if no specific model exists."""
-    val = uc.value if hasattr(uc, "value") else str(uc)
-    spec = _get_registry().get(val)
-    return spec.model if spec else None
 
 
 # ---------------------------------------------------------------------------
@@ -413,34 +372,6 @@ def get_seed_context_block(use_cases: list, seed_data: dict) -> str:
     lines.append("[/SEED_CONTEXT]")
     return "\n".join(lines)
 
-
-def get_field_doc_type(field_path: str, use_cases: list) -> str:
-    """Return the KB document_type for a field path, derived from the catalog.
-
-    Base fields have hardcoded mappings; use-case fields come from the catalog.
-    Falls back to 'configuration'.
-    """
-    _BASE_DOC_TYPES: dict[str, str | None] = {
-        "gpu_budget": "sizing",
-        "availability_requirement": "architecture",
-        "data_sensitivity": "configuration",
-        "compliance": "best-practices",
-        "user_info": None,
-        "user_info.name": None,
-        "user_info.experience_on_cloud": None,
-    }
-    if field_path in _BASE_DOC_TYPES:
-        return _BASE_DOC_TYPES[field_path] or "configuration"
-
-    registry = _get_registry()
-    parts = field_path.split(".", 1)
-    if len(parts) == 2:
-        uc_key, field_name = parts
-        spec = registry.get(uc_key)
-        if spec and field_name in spec.field_doc_types:
-            return spec.field_doc_types[field_name]
-
-    return "configuration"
 
 
 def get_use_case_config() -> list[dict]:

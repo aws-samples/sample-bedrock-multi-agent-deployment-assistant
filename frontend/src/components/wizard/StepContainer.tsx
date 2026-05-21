@@ -38,7 +38,7 @@ export function StepContainer({
       <div className="px-6 py-5">{children}</div>
 
       {error && (
-        <div className="mx-6 mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg">
+        <div className="mx-6 mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg" role="alert" aria-live="assertive">
           <p className="text-sm text-red-700">{error}</p>
         </div>
       )}
@@ -67,6 +67,7 @@ export function StepContainer({
                   className="animate-spin h-4 w-4"
                   viewBox="0 0 24 24"
                   fill="none"
+                  aria-hidden="true"
                 >
                   <circle
                     className="opacity-25"

@@ -8,6 +8,7 @@ import type {
   ValidationReport,
 } from "@/lib/types";
 import { getIaCTask } from "@/lib/api";
+import { getStoredToken } from "@/lib/auth";
 import { CodeBlock } from "@/components/ui/CodeBlock";
 import { StepContainer } from "./StepContainer";
 
@@ -487,7 +488,7 @@ export function IaCView({
     onIaCFailedRef.current = onIaCFailed;
   });
 
-  const pollIaCTaskRef = useRef<(taskId: string, attempt?: number) => Promise<void>>();
+  const pollIaCTaskRef = useRef<(taskId: string, attempt?: number) => Promise<void>>(undefined);
   const pollIaCTask = useCallback(
     async (taskId: string, attempt = 0) => {
       // WebSocket connected — let it handle updates instead
@@ -755,16 +756,32 @@ export function IaCView({
         {/* Download button */}
         {projectId && (
           <div className="mt-4">
-            <a
-              href={`${API}/api/export/${encodeURIComponent(projectId)}/iac.zip?tenant_id=${encodeURIComponent(tenantId)}`}
-              download
+            <button
+              onClick={async () => {
+                const token = getStoredToken();
+                const headers: Record<string, string> = token
+                  ? { Authorization: `Bearer ${token}` }
+                  : {};
+                const res = await fetch(
+                  `${API}/api/export/${encodeURIComponent(projectId)}/iac.zip?tenant_id=${encodeURIComponent(tenantId)}`,
+                  { headers },
+                );
+                if (!res.ok) return;
+                const blob = await res.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = blobUrl;
+                a.download = "iac.zip";
+                a.click();
+                URL.revokeObjectURL(blobUrl);
+              }}
               className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
               Download All Files (.zip)
-            </a>
+            </button>
           </div>
         )}
 

@@ -13,6 +13,7 @@ from botocore.exceptions import (
 from strands.models.bedrock import BedrockModel
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
+from src.config.agent_hooks import observability_hook
 from src.config.guardrails import get_guardrail_kwargs
 from src.config.settings import settings
 
@@ -32,12 +33,21 @@ def bedrock_retry(agent_name: str):
 
     Retries on transient AWS/network errors with exponential backoff.
     Records retry metrics under the given *agent_name*.
+    Emits BedrockThrottleCount metric on throttling (HTTP 429).
     """
 
     def _retry_callback(retry_state) -> None:
         from src.config.metrics import metrics
 
         metrics.record_retry(agent_name, retry_state.attempt_number)
+
+        exc = retry_state.outcome.exception() if retry_state.outcome else None
+        if (
+            exc
+            and isinstance(exc, ClientError)
+            and exc.response.get("Error", {}).get("Code") == "ThrottlingException"
+        ):
+            metrics.record_bedrock_throttle(agent_name)
 
     return retry(
         retry=retry_if_exception_type(BEDROCK_RETRYABLE),
@@ -71,6 +81,11 @@ def create_bedrock_model(
         max_tokens=max_tokens,
         **kwargs,
     )
+
+
+def agent_hooks():
+    """Return standard hooks for all agents (observability metrics)."""
+    return [observability_hook]
 
 
 def strip_fences(text: str) -> str:

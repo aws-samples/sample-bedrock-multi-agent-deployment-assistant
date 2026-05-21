@@ -11,7 +11,6 @@ import logging
 import threading
 import time
 
-import boto3
 from botocore.exceptions import ClientError, EndpointConnectionError
 from pydantic import BaseModel
 
@@ -87,7 +86,8 @@ def discover_snippets(
     logger.info("discover_snippets: scanning bucket=%s types=%s", bucket, resource_types)
 
     try:
-        s3_client = boto3.client("s3", region_name=settings.aws_region)
+        from src.config.aws import aws_client
+        s3_client = aws_client("s3")
         result: dict[str, list[SnippetInfo]] = {}
 
         for resource_type in resource_types:
@@ -125,7 +125,8 @@ def discover_snippets(
 def fetch_snippet_content(snippet: SnippetInfo) -> str | None:
     """Download snippet content from S3. Returns None on error."""
     try:
-        s3_client = boto3.client("s3", region_name=settings.aws_region)
+        from src.config.aws import aws_client
+        s3_client = aws_client("s3")
         response = s3_client.get_object(Bucket=snippet.s3_bucket, Key=snippet.s3_key)
         return response["Body"].read().decode("utf-8")
     except (ClientError, EndpointConnectionError) as exc:

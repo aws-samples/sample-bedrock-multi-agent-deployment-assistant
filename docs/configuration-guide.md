@@ -343,9 +343,9 @@ To support a new product with this system:
 
 1. **Create `config.yaml`** with product name, vendor, and KB connection
 2. **Populate Knowledge Base** — upload product docs to Bedrock KB (or place in `knowledge-base/` locally)
-3. **Generate `catalog.lock.yaml`** — run `ai-deploy catalog generate` (or hand-write initially)
+3. **Create `catalog.lock.yaml`** — define use cases, fields, patterns, and appliance config (use the existing file as a template)
 4. **Review and commit** the lock file
-5. **Optionally**: add predefined patterns in `backend/src/services/predefined_layers.py` for common deployments (saves ~5-8s per IaC generation)
-6. **Optionally**: add custom cfn-guard rules in the validation directory
+5. **Optionally**: add predefined LayerPlan patterns in `backend/src/services/predefined_layers.py` for common deployments (saves ~5-8s per IaC generation by skipping the LLM Architecture Planner)
+6. **Optionally**: add custom cfn-guard rules in `backend/src/validation/appliance_rules.guard`
 
 The entire interview → design → IaC → docs pipeline will automatically adapt to the new product's schema.

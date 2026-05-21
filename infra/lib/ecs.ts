@@ -18,12 +18,18 @@ export interface EcsConstructProps {
   table: dynamodb.Table;
   artifactsBucket: s3.Bucket;
   knowledgeBaseBucket: s3.Bucket;
+  /** Environment name used as resource name prefix (e.g., 'dev', 'prod'). */
+  environment: string;
   /** Optional ACM certificate ARN for HTTPS listener (TLS 1.3). */
   certificateArn?: string;
   /** Optional S3 bucket for ALB access logs. */
   accessLogsBucket?: s3.IBucket;
   /** Optional KMS key for log group encryption. */
   encryptionKey?: kms.IKey;
+  /** Optional Knowledge Base ID to scope IAM permissions. */
+  knowledgeBaseId?: string;
+  /** Optional AgentCore Memory ID for cross-session persistent memory. */
+  agentcoreMemoryId?: string;
 }
 
 export class EcsConstruct extends Construct {
@@ -33,8 +39,10 @@ export class EcsConstruct extends Construct {
   constructor(scope: Construct, id: string, props: EcsConstructProps) {
     super(scope, id);
 
+    const prefix = `ai-deploy-${props.environment}`;
+
     const cluster = new ecs.Cluster(this, "Cluster", {
-      clusterName: "ai-deploy-cluster",
+      clusterName: `${prefix}-cluster`,
       vpc: props.vpc,
       containerInsightsV2: ecs.ContainerInsights.ENHANCED,
     });
@@ -58,6 +66,30 @@ export class EcsConstruct extends Construct {
       }),
     );
 
+    // Bedrock model listing — required by /health endpoint
+    taskRole.addToPolicy(
+      new iam.PolicyStatement({
+        sid: "BedrockListModels",
+        actions: ["bedrock:ListFoundationModels"],
+        resources: ["*"],
+      }),
+    );
+
+    // Bedrock Knowledge Base retrieval — interview and design agents run on ECS
+    const kbResource = props.knowledgeBaseId
+      ? `arn:aws:bedrock:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:knowledge-base/${props.knowledgeBaseId}`
+      : `arn:aws:bedrock:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:knowledge-base/*`;
+    taskRole.addToPolicy(
+      new iam.PolicyStatement({
+        sid: "BedrockKBRetrieve",
+        actions: [
+          "bedrock-agent-runtime:Retrieve",
+          "bedrock-agent-runtime:RetrieveAndGenerate",
+        ],
+        resources: [kbResource],
+      }),
+    );
+
     // CloudWatch custom metrics (AI-Deploy namespace)
     taskRole.addToPolicy(
       new iam.PolicyStatement({
@@ -69,6 +101,29 @@ export class EcsConstruct extends Construct {
         },
       }),
     );
+
+    // AgentCore Memory — cross-session persistent memory (conditional)
+    if (props.agentcoreMemoryId) {
+      taskRole.addToPolicy(
+        new iam.PolicyStatement({
+          sid: "AgentCoreMemoryData",
+          actions: [
+            "bedrock-agentcore:CreateEvent",
+            "bedrock-agentcore:ListEvents",
+            "bedrock-agentcore:DeleteEvent",
+            "bedrock-agentcore:RetrieveMemoryRecords",
+            "bedrock-agentcore:ListMemoryRecords",
+            "bedrock-agentcore:GetMemoryRecord",
+            "bedrock-agentcore:BatchCreateMemoryRecords",
+            "bedrock-agentcore:StartMemoryExtractionJob",
+            "bedrock-agentcore:ListSessions",
+          ],
+          resources: [
+            `arn:aws:bedrock-agentcore:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:memory/${props.agentcoreMemoryId}`,
+          ],
+        }),
+      );
+    }
 
     // DynamoDB + S3 access
     props.table.grantReadWriteData(taskRole);
@@ -120,7 +175,7 @@ export class EcsConstruct extends Construct {
     });
 
     const taskDefinition = new ecs.FargateTaskDefinition(this, "TaskDef", {
-      family: "ai-deploy-backend",
+      family: `${prefix}-backend`,
       cpu: 2048,
       memoryLimitMiB: 4096,
       taskRole,
@@ -131,11 +186,10 @@ export class EcsConstruct extends Construct {
     });
 
     taskDefinition.addContainer("Backend", {
-      containerName: "ai-deploy-backend",
+      containerName: `${prefix}-backend`,
       image: ecs.ContainerImage.fromDockerImageAsset(imageAsset),
       portMappings: [{ containerPort: 8000, protocol: ecs.Protocol.TCP }],
       environment: {
-        AI_DEPLOY_STORAGE_BACKEND: "aws",
         AI_DEPLOY_DYNAMODB_TABLE: props.table.tableName,
         AI_DEPLOY_S3_ARTIFACTS_BUCKET: props.artifactsBucket.bucketName,
       },
@@ -169,21 +223,26 @@ export class EcsConstruct extends Construct {
       },
     ], true);
 
-    // Fargate service in private subnets
+    // Fargate service in private subnets, spread across AZs for HA
     this.service = new ecs.FargateService(this, "Service", {
-      serviceName: "ai-deploy-backend",
+      serviceName: `${prefix}-backend`,
       cluster,
       taskDefinition,
       desiredCount: 2,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
       assignPublicIp: false,
+      platformVersion: ecs.FargatePlatformVersion.LATEST,
+      circuitBreaker: { enable: true, rollback: true },
+      minHealthyPercent: 100,
+      maxHealthyPercent: 200,
+      availabilityZoneRebalancing: ecs.AvailabilityZoneRebalancing.ENABLED,
     });
 
     // ---------------------------------------------------------------------------
     // ALB in public subnets
     // ---------------------------------------------------------------------------
     this.alb = new elbv2.ApplicationLoadBalancer(this, "ALB", {
-      loadBalancerName: "ai-deploy-alb",
+      loadBalancerName: `${prefix}-alb`,
       vpc: props.vpc,
       internetFacing: true,
       idleTimeout: cdk.Duration.seconds(300),
@@ -287,12 +346,12 @@ export class EcsConstruct extends Construct {
     // WAF WebACL — AWS managed rule groups for common threats and known bad inputs
     // ---------------------------------------------------------------------------
     const webAcl = new wafv2.CfnWebACL(this, "WebAcl", {
-      name: "ai-deploy-web-acl",
+      name: `${prefix}-web-acl`,
       scope: "REGIONAL",
       defaultAction: { allow: {} },
       visibilityConfig: {
         cloudWatchMetricsEnabled: true,
-        metricName: "ai-deploy-web-acl",
+        metricName: `${prefix}-web-acl`,
         sampledRequestsEnabled: true,
       },
       rules: [
@@ -308,7 +367,7 @@ export class EcsConstruct extends Construct {
           },
           visibilityConfig: {
             cloudWatchMetricsEnabled: true,
-            metricName: "ai-deploy-common-rules",
+            metricName: `${prefix}-common-rules`,
             sampledRequestsEnabled: true,
           },
         },
@@ -324,7 +383,7 @@ export class EcsConstruct extends Construct {
           },
           visibilityConfig: {
             cloudWatchMetricsEnabled: true,
-            metricName: "ai-deploy-known-bad-inputs",
+            metricName: `${prefix}-known-bad-inputs`,
             sampledRequestsEnabled: true,
           },
         },
@@ -340,7 +399,7 @@ export class EcsConstruct extends Construct {
           },
           visibilityConfig: {
             cloudWatchMetricsEnabled: true,
-            metricName: "ai-deploy-rate-limit",
+            metricName: `${prefix}-rate-limit`,
             sampledRequestsEnabled: true,
           },
         },

@@ -18,6 +18,7 @@ import pytest
 ENV_BASE = {
     "DYNAMODB_TABLE": "test-table",
     "WEBSOCKET_CALLBACK_URL": "https://execute-api.test/prod",
+    "AWS_DEFAULT_REGION": "us-east-1",
 }
 
 

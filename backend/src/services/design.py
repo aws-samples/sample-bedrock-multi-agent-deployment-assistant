@@ -10,8 +10,7 @@ import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
-import boto3
-
+from src.config.aws import aws_client
 from src.config.settings import settings
 from src.models.design import (
     DeploymentParameters,
@@ -24,6 +23,7 @@ from src.models.requirements import InterviewOutput
 from src.services.parameter_resolver import ParameterResolver
 from src.services.refinement import generate_refinement_plan
 from src.storage import get_store
+from src.storage.protocol import ActiveTaskConflictError
 from src.utils.validation import sanitize_requirements, validate_safe_id
 
 logger = logging.getLogger(__name__)
@@ -75,12 +75,16 @@ def _create_task_and_body(
     )
     store.create_task(tenant_id, task)
 
-    # Track the active task on the project so the frontend can detect
-    # in-progress generation when the user navigates back.
-    project = store.get_project(tenant_id, project_id)
-    if project:
-        project.active_design_task_id = task_id
-        store.update_project(project)
+    # Atomically claim the active task slot (prevents TOCTOU race).
+    # If another request claimed it between our check and this write, fail fast.
+    try:
+        store.claim_active_task(tenant_id, project_id, "active_design_task_id", task_id)
+    except ActiveTaskConflictError:
+        store.update_task(tenant_id, task_id, {
+            "status": DesignTaskStatus.FAILED.value,
+            "error_message": "Another design task was claimed concurrently",
+        })
+        raise ValueError("Another design task is already active for this project")
 
     return {
         "task_id": task_id,
@@ -139,12 +143,25 @@ def _submit_sqs(
         requirements, feedback, previous_options,
     )
 
-    sqs = boto3.client("sqs", region_name=settings.aws_region)
-    sqs.send_message(
-        QueueUrl=settings.sqs_design_queue_url,
-        MessageBody=json.dumps(body),
-        MessageGroupId=f"{tenant_id}#{project_id}",
-    )
+    try:
+        sqs = aws_client("sqs")
+        sqs.send_message(
+            QueueUrl=settings.sqs_design_queue_url,
+            MessageBody=json.dumps(body),
+            MessageGroupId=f"{tenant_id}#{project_id}",
+        )
+    except Exception as e:
+        logger.error("SQS send failed for design task %s: %s", task_id, e)
+        store = get_store()
+        store.update_task(tenant_id, task_id, {
+            "status": DesignTaskStatus.FAILED.value,
+            "error_message": f"Queue delivery failed: {e}",
+        })
+        project = store.get_project(tenant_id, project_id)
+        if project:
+            project.active_design_task_id = None
+            store.update_project(project)
+        raise
 
     logger.info("Design task %s submitted to SQS (type=%s)", task_id, task_type)
     return {"task_id": task_id, "status": "queued"}

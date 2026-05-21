@@ -28,6 +28,10 @@ STEP_NEXT_MAP: dict[str, str] = {
 }
 
 
+class ActiveTaskConflictError(Exception):
+    """Raised when an active task already exists for the given slot."""
+
+
 class ProjectStore(Protocol):
     """Interface for project persistence backends."""
 
@@ -35,11 +39,22 @@ class ProjectStore(Protocol):
 
     def get_project(self, tenant_id: str, project_id: str) -> Project | None: ...
 
-    def list_projects(self, tenant_id: str) -> list[Project]: ...
+    def list_projects(
+        self, tenant_id: str, limit: int = 50, cursor: str | None = None,
+    ) -> tuple[list[Project], str | None]: ...
 
     def delete_project(self, tenant_id: str, project_id: str) -> None: ...
 
     def update_project(self, project: Project) -> None: ...
+
+    def claim_active_task(
+        self, tenant_id: str, project_id: str, slot: str, task_id: str,
+    ) -> None:
+        """Atomically set an active task slot (e.g., 'active_iac_task_id') only if empty.
+
+        Raises ActiveTaskConflictError if the slot is already occupied.
+        """
+        ...
 
     def save_step(self, tenant_id: str, project_id: str, step: str, data: dict, *, advance: bool = True) -> None: ...
 

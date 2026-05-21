@@ -26,6 +26,7 @@ export class DynamoDbConstruct extends Construct {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
       deletionProtection: true,
+      timeToLiveAttribute: "ttl",
     });
 
     this.table.addGlobalSecondaryIndex({
@@ -42,12 +43,6 @@ export class DynamoDbConstruct extends Construct {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
-    // Enable TTL for automatic task cleanup
-    const cfnTable = this.table.node.defaultChild as dynamodb.CfnTable;
-    cfnTable.addPropertyOverride("TimeToLiveSpecification", {
-      AttributeName: "ttl",
-      Enabled: true,
-    });
 
     new cdk.CfnOutput(this, "TableName", {
       value: this.table.tableName,

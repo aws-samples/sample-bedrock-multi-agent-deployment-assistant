@@ -40,13 +40,13 @@ class TestProjectsService:
             p1.model_dump.return_value = {"project_id": "a", "name": "A"}
             p2 = MagicMock()
             p2.model_dump.return_value = {"project_id": "b", "name": "B"}
-            mock.return_value.list_projects.return_value = [p1, p2]
+            mock.return_value.list_projects.return_value = ([p1, p2], None)
 
             from src.services.projects import list_projects_service
 
             result = list_projects_service("t1")
-            assert len(result) == 2
-            assert result[0]["name"] == "A"
+            assert len(result["projects"]) == 2
+            assert result["projects"][0]["name"] == "A"
 
     def test_get_project_raises_value_error_if_not_found(self):
         with patch("src.services.projects.get_store") as mock:

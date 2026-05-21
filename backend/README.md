@@ -18,14 +18,14 @@ Health check: `http://localhost:8000/ping`
 
 ### Agent Pipeline
 
-Four sequential agents orchestrated via `strands.multiagent.GraphBuilder`:
+Four sequential agents orchestrated by the services layer (each stage is an independent Strands `Agent`):
 
 | Stage | Agent | Model | Purpose |
 |-------|-------|-------|---------|
 | 1 | **Interview** | Sonnet (planner) + Haiku (executor) | Collects product deployment requirements via interactive Q&A |
-| 2 | **Design** | Sonnet | Generates 2-3 architecture options with Well-Architected evaluation |
-| 3 | **IaC** | Sonnet | Produces modular CloudFormation templates with validation |
-| 4 | **Documentation** | Sonnet | Generates user guide, threat model, and architecture diagram |
+| 2 | **Design** | Sonnet | Generates 3 architecture options with Well-Architected evaluation |
+| 3 | **IaC** | Sonnet | Produces CloudFormation templates with multi-tier validation |
+| 4 | **Documentation** | Sonnet | Generates user guide and architecture diagram |
 
 HITL (Human-in-the-Loop) design approval is handled at the API layer between stages 2 and 3.
 
@@ -38,14 +38,11 @@ Long-running tasks (design, IaC, docs) are processed asynchronously:
 
 The backend auto-detects the mode: if `AI_DEPLOY_SQS_DESIGN_QUEUE_URL` is set, tasks go to SQS. Otherwise, the local worker processes them.
 
-### Storage Backends
+### Storage
 
-| Backend | Config | Use Case |
-|---------|--------|----------|
-| `local` | `AI_DEPLOY_STORAGE_BACKEND=local` | Development — JSON files in `.local-data/` |
-| `aws` | `AI_DEPLOY_STORAGE_BACKEND=aws` | Production — DynamoDB metadata + S3 artifacts |
+All environments use `DynamoS3ProjectStore` (DynamoDB for metadata + S3 for large artifacts). In local development, requests are routed to Floci (local AWS emulator on port 4566) via `AI_DEPLOY_AWS_ENDPOINT_URL`.
 
-The storage interface is defined in `src/storage/protocol.py`. The factory in `src/storage/__init__.py` returns the correct backend based on config.
+The storage interface is defined in `src/storage/protocol.py`. The factory in `src/storage/__init__.py` returns the singleton store.
 
 ### Real-time Updates
 
@@ -101,8 +98,8 @@ src/
 
 | Method | Path | Description | Rate Limit |
 |--------|------|-------------|------------|
-| `POST` | `/api/iac/submit` | Submit async IaC task → `202` | 10/min |
-| `GET` | `/api/iac/task/{task_id}` | Poll task status | 30/min |
+| `POST` | `/api/iac/submit` | Submit async IaC task → `202` | — |
+| `GET` | `/api/iac/task/{task_id}` | Poll task status | — |
 
 ### Documentation
 
@@ -130,10 +127,9 @@ All variables use the `AI_DEPLOY_` prefix. Copy `.env.sample` to `.env` and conf
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AI_DEPLOY_AWS_REGION` | `us-east-1` | AWS region for Bedrock calls |
+| `AI_DEPLOY_AWS_REGION` | `us-west-2` | AWS region for Bedrock calls |
 | `AI_DEPLOY_PRIMARY_MODEL_ID` | Claude Sonnet 4.5 | Bedrock model for design/IaC agents |
 | `AI_DEPLOY_LIGHTWEIGHT_MODEL_ID` | Claude Haiku 4.5 | Bedrock model for interview executor |
-| `AI_DEPLOY_STORAGE_BACKEND` | `local` | `local` or `aws` |
 
 ### Optional
 

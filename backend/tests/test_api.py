@@ -1,33 +1,31 @@
 """Integration tests for FastAPI API endpoints.
 
 Tests the REST API layer using FastAPI's TestClient (synchronous, backed by httpx).
-Storage is pointed at a temp directory so no real data is touched.
-No AWS credentials or LLM calls are required.
+Storage uses an in-memory store — no AWS credentials or LLM calls required.
 """
-
-from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
-from src.storage import get_store
-
-
-@pytest.fixture(autouse=True)
-def _clear_store_cache():
-    """Clear the cached get_store() singleton between tests."""
-    get_store.cache_clear()
-    yield
-    get_store.cache_clear()
+from src.storage import set_store_override
+from tests.conftest import InMemoryProjectStore
 
 
 @pytest.fixture
-def client(tmp_path):
-    """Create a test client whose storage writes to a temp directory."""
-    with patch("src.storage.local.DATA_DIR", tmp_path):
-        from src.main import app
+def store():
+    """In-memory store shared between client and direct test access."""
+    s = InMemoryProjectStore()
+    set_store_override(s)
+    yield s
+    set_store_override(None)
 
-        yield TestClient(app)
+
+@pytest.fixture
+def client(store):
+    """Create a test client backed by an in-memory store."""
+    from src.main import app
+
+    yield TestClient(app)
 
 
 # ---------------------------------------------------------------------------
@@ -77,13 +75,32 @@ def test_list_projects(client):
     response = client.get("/api/projects?tenant_id=t1")
     assert response.status_code == 200
     data = response.json()
-    assert len(data) == 2
+    assert len(data["projects"]) == 2
 
 
 def test_list_projects_empty(client):
     response = client.get("/api/projects?tenant_id=empty")
     assert response.status_code == 200
-    assert response.json() == []
+    assert response.json()["projects"] == []
+
+
+def test_list_projects_pagination(client):
+    for i in range(5):
+        client.post("/api/projects?tenant_id=t1", json={"name": f"P{i}"})
+
+    response = client.get("/api/projects?tenant_id=t1&limit=2")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["projects"]) == 2
+    assert "next_cursor" in data
+
+
+def test_list_projects_limit_validation(client):
+    response = client.get("/api/projects?tenant_id=t1&limit=0")
+    assert response.status_code == 422
+
+    response = client.get("/api/projects?tenant_id=t1&limit=201")
+    assert response.status_code == 422
 
 
 def test_list_projects_tenant_isolation(client):
@@ -92,10 +109,10 @@ def test_list_projects_tenant_isolation(client):
 
     response_t1 = client.get("/api/projects?tenant_id=t1")
     response_t2 = client.get("/api/projects?tenant_id=t2")
-    assert len(response_t1.json()) == 1
-    assert len(response_t2.json()) == 1
-    assert response_t1.json()[0]["name"] == "T1 Project"
-    assert response_t2.json()[0]["name"] == "T2 Project"
+    assert len(response_t1.json()["projects"]) == 1
+    assert len(response_t2.json()["projects"]) == 1
+    assert response_t1.json()["projects"][0]["name"] == "T1 Project"
+    assert response_t2.json()["projects"][0]["name"] == "T2 Project"
 
 
 # ---------------------------------------------------------------------------
@@ -177,17 +194,14 @@ def test_get_project_state(client):
     assert data["docs"] is None
 
 
-def test_get_project_state_with_step_data(client, tmp_path):
+def test_get_project_state_with_step_data(client, store):
     """After saving step data via the store, /state should reflect it."""
     create_resp = client.post(
         "/api/projects?tenant_id=t1", json={"name": "Stateful"}
     )
     project_id = create_resp.json()["project_id"]
 
-    # Directly save step data through the store
-    with patch("src.storage.local.DATA_DIR", tmp_path):
-        store = get_store()
-        store.save_step("t1", project_id, "requirements", {"use_case": "realtime-inference"})
+    store.save_step("t1", project_id, "requirements", {"use_case": "realtime-inference"})
 
     response = client.get(f"/api/projects/{project_id}/state?tenant_id=t1")
     assert response.status_code == 200
@@ -212,22 +226,20 @@ def test_export_iac_not_found(client):
     assert response.status_code == 404
 
 
-def test_export_iac_no_files_key(client, tmp_path):
+def test_export_iac_no_files_key(client, store):
     """Export should 404 when IaC data exists but has no 'files' key."""
     create_resp = client.post(
         "/api/projects?tenant_id=t1", json={"name": "NoFiles"}
     )
     project_id = create_resp.json()["project_id"]
 
-    with patch("src.storage.local.DATA_DIR", tmp_path):
-        store = get_store()
-        store.save_step("t1", project_id, "iac", {"validation": "passed"})
+    store.save_step("t1", project_id, "iac", {"validation": "passed"})
 
     response = client.get(f"/api/export/{project_id}/iac.zip?tenant_id=t1")
     assert response.status_code == 404
 
 
-def test_export_iac_zip_success(client, tmp_path):
+def test_export_iac_zip_success(client, store):
     """Export should return a zip when IaC files exist."""
     import io
     import zipfile
@@ -243,9 +255,7 @@ def test_export_iac_zip_success(client, tmp_path):
             "variables.tf": 'variable "region" { default = "us-east-1" }',
         }
     }
-    with patch("src.storage.local.DATA_DIR", tmp_path):
-        store = get_store()
-        store.save_step("t1", project_id, "iac", iac_data)
+    store.save_step("t1", project_id, "iac", iac_data)
 
     response = client.get(f"/api/export/{project_id}/iac.zip?tenant_id=t1")
     assert response.status_code == 200
@@ -262,7 +272,7 @@ def test_export_iac_zip_success(client, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_full_project_lifecycle(client, tmp_path):
+def test_full_project_lifecycle(client, store):
     """Create project, save all steps, verify final state is complete."""
     create_resp = client.post(
         "/api/projects?tenant_id=t1", json={"name": "Lifecycle"}
@@ -270,17 +280,10 @@ def test_full_project_lifecycle(client, tmp_path):
     assert create_resp.status_code == 200
     project_id = create_resp.json()["project_id"]
 
-    with patch("src.storage.local.DATA_DIR", tmp_path):
-        store = get_store()
-        store.save_step("t1", project_id, "requirements", {"use_case": "batch-inference"})
-        store.save_step("t1", project_id, "design", {"options": [{"name": "A"}]})
-        store.save_step(
-            "t1",
-            project_id,
-            "iac",
-            {"files": {"main.tf": "# terraform"}},
-        )
-        store.save_step("t1", project_id, "docs", {"guide": "# Implementation"})
+    store.save_step("t1", project_id, "requirements", {"use_case": "batch-inference"})
+    store.save_step("t1", project_id, "design", {"options": [{"name": "A"}]})
+    store.save_step("t1", project_id, "iac", {"files": {"main.tf": "# terraform"}})
+    store.save_step("t1", project_id, "docs", {"guide": "# Implementation"})
 
     state_resp = client.get(f"/api/projects/{project_id}/state?tenant_id=t1")
     assert state_resp.status_code == 200

@@ -1,17 +1,17 @@
 import functools
 import json
 
-import boto3
 from strands import tool
 
+from src.config.aws import aws_client, s3_encryption_kwargs
 from src.config.settings import settings
 from src.utils.validation import validate_artifact_path, validate_safe_id
 
 
 @functools.cache
 def _get_s3_client():
-    """Cached boto3 S3 client — avoids creating a new client on every tool invocation."""
-    return boto3.client("s3", region_name=settings.aws_region)
+    """Cached S3 client — avoids creating a new client on every tool invocation."""
+    return aws_client("s3")
 
 
 @tool(context=True)
@@ -50,10 +50,51 @@ def save_artifact(
         Body=content.encode("utf-8"),
         ContentType=content_type,
         Metadata={"tenant_id": tenant_id, "project_id": project_id},
-        ServerSideEncryption="aws:kms",
+        **s3_encryption_kwargs(),
     )
 
     return s3_uri
+
+
+def persist_artifacts(
+    tenant_id: str,
+    project_id: str,
+    files: dict[str, str],
+    content_type: str = "text/plain",
+) -> list[str]:
+    """Persist multiple artifacts to S3 (non-tool direct call for processing pipelines).
+
+    Args:
+        tenant_id: Tenant ID for path isolation.
+        project_id: Project ID for path isolation.
+        files: Mapping of artifact_path → content.
+        content_type: MIME type for all files.
+
+    Returns:
+        List of S3 URIs for saved artifacts.
+    """
+    if not settings.s3_artifacts_bucket:
+        return []
+
+    tenant_id = validate_safe_id(tenant_id, "tenant_id")
+    project_id = validate_safe_id(project_id, "project_id")
+    client = _get_s3_client()
+    uris: list[str] = []
+
+    for path, content in files.items():
+        safe_path = validate_artifact_path(path)
+        s3_key = f"{tenant_id}/{project_id}/{safe_path}"
+        client.put_object(
+            Bucket=settings.s3_artifacts_bucket,
+            Key=s3_key,
+            Body=content.encode("utf-8"),
+            ContentType=content_type,
+            Metadata={"tenant_id": tenant_id, "project_id": project_id},
+            **s3_encryption_kwargs(),
+        )
+        uris.append(f"s3://{settings.s3_artifacts_bucket}/{s3_key}")
+
+    return uris
 
 
 @tool(context=True)
@@ -87,7 +128,7 @@ def save_artifacts_batch(artifacts: str, tool_context=None) -> str:
             Body=item["content"].encode("utf-8"),
             ContentType=item.get("content_type", "text/plain"),
             Metadata={"tenant_id": tenant_id, "project_id": project_id},
-            ServerSideEncryption="aws:kms",
+            **s3_encryption_kwargs(),
         )
         saved.append(s3_key)
 

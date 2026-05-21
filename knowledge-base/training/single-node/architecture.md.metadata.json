@@ -1,0 +1,7 @@
+{
+  "metadataAttributes": {
+    "use_case": "training",
+    "deployment_type": "single-node",
+    "document_type": "architecture"
+  }
+}

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from strands import Agent
 
-from src.agents.common import bedrock_retry, create_bedrock_model
+from src.agents.common import agent_hooks, bedrock_retry, create_bedrock_model
 from src.config.callback import logging_callback_handler
 from src.config.circuit_breaker import bedrock_breaker
 from src.config.settings import settings
@@ -37,12 +37,18 @@ def _build_system_prompt(available_templates: str) -> str:
     return _system_prompt_template.format(**format_vars)
 
 
-def create_design_agent(available_templates: str = "None") -> Agent:
+def create_design_agent(
+    available_templates: str = "None",
+    tenant_id: str = "",
+    project_id: str = "",
+) -> Agent:
     """Create a fresh Design Agent instance.
 
     A new Agent is created per invocation to prevent cross-tenant
     conversation history leakage.
     """
+    from src.services.memory import create_session_manager
+
     return Agent(
         name="design-agent",
         model=create_bedrock_model(settings.max_tokens),
@@ -50,6 +56,8 @@ def create_design_agent(available_templates: str = "None") -> Agent:
         tools=get_authorized_tools("design-agent", [kb_search, evaluate_design_against_wa]),
         structured_output_model=DesignRecommendation,
         callback_handler=logging_callback_handler,
+        hooks=agent_hooks(),
+        session_manager=create_session_manager(tenant_id, project_id) if project_id else None,
     )
 
 
@@ -62,8 +70,9 @@ def design_agent(prompt: str, available_templates: str = "None", **kwargs) -> ob
     from src.config.metrics import metrics
 
     bedrock_breaker.pre_check()
-    agent = create_design_agent(available_templates)
     tenant_id = (kwargs.get("invocation_state") or {}).get("tenant_id", "default")
+    project_id = (kwargs.get("invocation_state") or {}).get("project_id", "")
+    agent = create_design_agent(available_templates, tenant_id=tenant_id, project_id=project_id)
 
     start = time.perf_counter()
     result = _invoke_with_retry(agent, prompt, **kwargs)

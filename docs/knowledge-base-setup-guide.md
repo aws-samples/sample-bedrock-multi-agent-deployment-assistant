@@ -148,11 +148,9 @@ knowledge_base:
 ```bash
 cd backend
 AI_DEPLOY_KNOWLEDGE_BASE_ID="" uv run python -c "
-from src.services.kb_provider import get_kb_provider, reset_kb_provider
-reset_kb_provider()
+from src.services.kb_provider import get_kb_provider
 provider = get_kb_provider()
 print(f'Provider: {type(provider).__name__}')
-print(f'Available: {provider.is_available}')
 results = provider.search('inference scaling GPU', max_results=3)
 for r in results:
     print(f'  [{r.score:.3f}] {r.source_uri}')
@@ -164,11 +162,38 @@ for r in results:
 ```bash
 cd backend
 AI_DEPLOY_KNOWLEDGE_BASE_ID=YOUR_KB_ID uv run python -c "
-from src.services.kb_provider import get_kb_provider, reset_kb_provider
-reset_kb_provider()
+from src.services.kb_provider import get_kb_provider
 provider = get_kb_provider()
 results = provider.search('deployment architecture', max_results=3)
 for r in results:
     print(f'  [{r.score:.3f}] {r.source_uri}')
 "
 ```
+
+---
+
+## Automation Scripts
+
+The `scripts/` directory contains automation for KB management:
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/generate-kb-metadata.sh` | Generates `.metadata.json` sidecar files for each KB document (use_case, deployment_type, document_type attributes for filtered retrieval) |
+| `scripts/setup-bedrock-kb.sh` | Creates a Bedrock Knowledge Base with S3 data source, IAM roles, and vector store configuration |
+
+### Metadata generation
+
+Run after adding new documents to `knowledge-base/`:
+
+```bash
+./scripts/generate-kb-metadata.sh
+```
+
+This creates sidecar metadata files that enable filtered KB retrieval by use case and document type.
+
+### Auto-sync in dev.sh
+
+When `BEDROCK_KB_ID` and `BEDROCK_KB_DATA_SOURCE` are configured, `dev.sh` automatically:
+1. Syncs local KB documents to the S3 KB source bucket
+2. Triggers a Bedrock KB data source sync (ingestion job)
+3. Waits for ingestion to complete before starting the backend

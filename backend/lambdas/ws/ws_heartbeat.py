@@ -79,16 +79,17 @@ def handler(event, context):
     active = 0
     stale = 0
 
-    # Scan for all CONNECTION items
-    scan_kwargs = {
-        "FilterExpression": "sk = :sk AND begins_with(pk, :prefix)",
-        "ExpressionAttributeValues": {":sk": "CONNECTION", ":prefix": "WS#"},
+    # Query GSI2 for all active connections (O(connections) instead of O(table_size))
+    query_kwargs = {
+        "IndexName": "GSI2",
+        "KeyConditionExpression": "gsi2pk = :pk",
+        "ExpressionAttributeValues": {":pk": "WS_CONNECTIONS"},
         "ProjectionExpression": "pk, connection_id",
     }
 
     done = False
     while not done:
-        response = _table.scan(**scan_kwargs)
+        response = _table.query(**query_kwargs)
         for item in response.get("Items", []):
             connection_id = item.get("connection_id", "")
             if not connection_id:
@@ -107,7 +108,7 @@ def handler(event, context):
                 logger.exception("Heartbeat failed for %s", connection_id)
 
         if response.get("LastEvaluatedKey"):
-            scan_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
+            query_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
         else:
             done = True
 

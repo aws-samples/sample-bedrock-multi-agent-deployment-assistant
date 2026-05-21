@@ -29,12 +29,9 @@ class MetricsPublisher:
 
     def _get_client(self) -> object:
         if self._client is None:
-            import boto3
-            from src.config.settings import settings
+            from src.config.aws import aws_client
 
-            self._client = boto3.client(
-                "cloudwatch", region_name=settings.aws_region
-            )
+            self._client = aws_client("cloudwatch")
         return self._client
 
     def shutdown(self, wait: bool = True) -> None:
@@ -80,7 +77,14 @@ class MetricsPublisher:
     def _submit(self, fn, *args) -> None:
         """Submit work to the executor with the caller's contextvars propagated."""
         ctx = contextvars.copy_context()
-        self._executor.submit(ctx.run, fn, *args)
+        future = self._executor.submit(ctx.run, fn, *args)
+        future.add_done_callback(self._on_future_done)
+
+    @staticmethod
+    def _on_future_done(future) -> None:
+        exc = future.exception()
+        if exc:
+            logging.getLogger(__name__).debug("Metrics publish failed: %s", exc)
 
     def record_latency(
         self, agent_name: str, duration_ms: float, tenant_id: str = "default"
@@ -197,6 +201,44 @@ class MetricsPublisher:
             [
                 {"Name": "Layer", "Value": layer},
                 {"Name": "TenantId", "Value": tenant_id},
+            ],
+        )
+
+    def record_bedrock_throttle(self, agent_name: str, tenant_id: str = "default") -> None:
+        """Record a Bedrock throttling (429) event."""
+        self._submit(
+            self._put_metric,
+            "BedrockThrottleCount",
+            1,
+            "Count",
+            [
+                {"Name": "AgentName", "Value": agent_name},
+                {"Name": "TenantId", "Value": tenant_id},
+            ],
+        )
+
+    def record_memory_retrieval(
+        self, agent_name: str, namespace: str, results_count: int, latency_ms: float,
+    ) -> None:
+        """Record AgentCore Memory retrieval latency and result count."""
+        self._submit(
+            self._put_metric,
+            "MemoryRetrievalLatencyMs",
+            latency_ms,
+            "Milliseconds",
+            [
+                {"Name": "AgentName", "Value": agent_name},
+                {"Name": "Namespace", "Value": namespace},
+            ],
+        )
+        self._submit(
+            self._put_metric,
+            "MemoryRetrievalResults",
+            results_count,
+            "Count",
+            [
+                {"Name": "AgentName", "Value": agent_name},
+                {"Name": "Namespace", "Value": namespace},
             ],
         )
 

@@ -24,7 +24,7 @@ from pathlib import Path
 
 from strands import Agent
 
-from src.agents.common import bedrock_retry, create_bedrock_model
+from src.agents.common import agent_hooks, bedrock_retry, create_bedrock_model
 from src.config.callback import logging_callback_handler
 from src.config.circuit_breaker import bedrock_breaker
 from src.config.settings import settings
@@ -47,12 +47,6 @@ _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 _MAX_FIX_ATTEMPTS = 3
 
 
-class _PartialFormatMap(dict):
-    """Dict that returns '{key}' for missing keys — enables partial .format_map()."""
-    def __missing__(self, key: str) -> str:
-        return "{" + key + "}"
-
-
 def _load_prompt(name: str) -> str:
     """Load a prompt template and inject catalog context variables.
 
@@ -60,10 +54,11 @@ def _load_prompt(name: str) -> str:
     are preserved for later .format() calls.
     """
     from src.services.catalog_loader import get_catalog
+    from src.utils.formatting import PartialFormatMap
     template = (_PROMPTS_DIR / name).read_text()
     try:
         catalog = get_catalog()
-        return template.format_map(_PartialFormatMap(catalog.get_prompt_context()))
+        return template.format_map(PartialFormatMap(catalog.get_prompt_context()))
     except Exception:
         return template
 
@@ -248,6 +243,7 @@ def _compose_snippets(
         system_prompt="You produce a JSON snippet assembly plan.",
         structured_output_model=SnippetAssemblyPlan,
         callback_handler=logging_callback_handler,
+        hooks=agent_hooks(),
     )
     result = bedrock_breaker.call(agent, user_prompt, invocation_state=invocation_state)
 
@@ -268,9 +264,13 @@ def _compose_snippets(
 # Layered generation pipeline (Path 3: decomposed)
 # ---------------------------------------------------------------------------
 
-# In-memory cache for LLM-generated LayerPlans, keyed by tenant + normalized pattern.
+_LAYER_PLAN_CACHE_MAX_SIZE = 500
+_LAYER_PLAN_CACHE_TTL = 3600  # 1 hour
+
+# Bounded LRU+TTL cache for LLM-generated LayerPlans, keyed by tenant + normalized pattern.
 # Avoids repeated Architecture Planner calls for the same deployment pattern.
-_LAYER_PLAN_CACHE: dict[str, LayerPlan] = {}
+# Bounded to prevent OOM on long-running ECS tasks with many tenants.
+_LAYER_PLAN_CACHE: dict[str, tuple[float, LayerPlan]] = {}
 _LAYER_PLAN_LOCK = threading.Lock()
 
 
@@ -318,6 +318,8 @@ def _generate_layer_plan(
     kb_context: str,
 ) -> LayerPlan:
     """Generate a LayerPlan via the Architecture Planner LLM."""
+    from src.services.memory import create_session_manager
+
     system_prompt = _load_prompt("iac_architecture_planner.txt")
 
     user_prompt = system_prompt.replace(
@@ -326,6 +328,9 @@ def _generate_layer_plan(
         "{resolved_params_json}", params.model_dump_json(indent=2)
     )
 
+    tenant_id = invocation_state.get("tenant_id", "")
+    project_id = invocation_state.get("project_id", "")
+
     model = create_bedrock_model(max_tokens=settings.iac_layer_plan_max_tokens)
     agent = Agent(
         name="iac-layer-plan",
@@ -333,6 +338,8 @@ def _generate_layer_plan(
         system_prompt="You produce a JSON layer plan for CloudFormation architecture decomposition.",
         structured_output_model=LayerPlan,
         callback_handler=logging_callback_handler,
+        hooks=agent_hooks(),
+        session_manager=create_session_manager(tenant_id, project_id) if project_id else None,
     )
     result = bedrock_breaker.call(agent, user_prompt, invocation_state=invocation_state)
 
@@ -345,42 +352,74 @@ def _generate_layer_plan(
     return plan
 
 
+def _cache_get(cache_key: str) -> LayerPlan | None:
+    """Get a non-expired entry from the bounded cache."""
+    entry = _LAYER_PLAN_CACHE.get(cache_key)
+    if entry is None:
+        return None
+    ts, plan = entry
+    if time.time() - ts > _LAYER_PLAN_CACHE_TTL:
+        return None
+    return plan
+
+
+def _cache_put(cache_key: str, plan: LayerPlan) -> None:
+    """Store an entry, evicting oldest if at capacity."""
+    if len(_LAYER_PLAN_CACHE) >= _LAYER_PLAN_CACHE_MAX_SIZE:
+        oldest_key = min(_LAYER_PLAN_CACHE, key=lambda k: _LAYER_PLAN_CACHE[k][0])
+        del _LAYER_PLAN_CACHE[oldest_key]
+    _LAYER_PLAN_CACHE[cache_key] = (time.time(), plan)
+
+
 def _get_or_generate_layer_plan(
     params: ResolvedIaCParameters,
     invocation_state: dict,
     kb_context: str,
     tenant_id: str,
 ) -> LayerPlan:
-    """Get a cached LayerPlan or generate one via LLM.
+    """Get a LayerPlan from predefined patterns, cache, or LLM generation.
 
-    Implements the LLM + cache strategy with double-checked locking:
-    first request generates via LLM and caches; subsequent requests
-    with the same tenant+pattern reuse the cache.
+    Resolution order:
+      1. Predefined pattern match (zero LLM cost, ~0ms)
+      2. In-memory cache hit (zero LLM cost, ~0ms)
+      3. LLM generation via Architecture Planner (~5-8s, cached after)
+
+    Cache is bounded (max 500 entries) with 1-hour TTL to prevent OOM.
     """
     from src.config.metrics import metrics
+    from src.services.predefined_layers import get_predefined_plan
 
     pattern_key = _normalize_pattern_key(params.deployment_pattern)
     cache_key = f"{tenant_id}:{pattern_key}"
 
-    # Fast path (no lock)
-    if cache_key in _LAYER_PLAN_CACHE:
+    # 1. Predefined pattern fast path (no LLM, no cache needed)
+    predefined = get_predefined_plan(params.deployment_pattern)
+    if predefined is not None:
+        logger.info("Using predefined LayerPlan for pattern '%s'", pattern_key)
+        metrics.record_layer_plan_cache(hit=True, pattern_name=pattern_key, tenant_id=tenant_id)
+        return predefined
+
+    # 2. Cache fast path (no lock)
+    cached = _cache_get(cache_key)
+    if cached is not None:
         logger.info("LayerPlan cache hit for '%s'", cache_key)
         metrics.record_layer_plan_cache(hit=True, pattern_name=pattern_key, tenant_id=tenant_id)
-        return _LAYER_PLAN_CACHE[cache_key]
+        return cached
 
-    # Slow path (lock + double-check)
+    # 3. Slow path (lock + double-check + LLM)
     with _LAYER_PLAN_LOCK:
-        if cache_key in _LAYER_PLAN_CACHE:
+        cached = _cache_get(cache_key)
+        if cached is not None:
             logger.info("LayerPlan cache hit (after lock) for '%s'", cache_key)
             metrics.record_layer_plan_cache(hit=True, pattern_name=pattern_key, tenant_id=tenant_id)
-            return _LAYER_PLAN_CACHE[cache_key]
+            return cached
 
         logger.info("LayerPlan cache miss for '%s', generating via LLM", cache_key)
         metrics.record_layer_plan_cache(hit=False, pattern_name=pattern_key, tenant_id=tenant_id)
 
         plan = _generate_layer_plan(params, invocation_state, kb_context)
 
-        _LAYER_PLAN_CACHE[cache_key] = plan
+        _cache_put(cache_key, plan)
         logger.info("Cached LayerPlan for '%s' (%d layers)", cache_key, len(plan.layers))
 
     return plan
@@ -440,6 +479,7 @@ def _generate_layer_resources(
         system_prompt=f"You produce a JSON resource plan for the {layer_spec.name} layer.",
         structured_output_model=ResourcePlan,
         callback_handler=logging_callback_handler,
+        hooks=agent_hooks(),
     )
     result = bedrock_breaker.call(agent, user_prompt, invocation_state=invocation_state)
 
@@ -558,6 +598,7 @@ def _fix_layer_resource_plan(
         system_prompt=f"You fix a JSON resource plan for the {layer_spec.name} layer.",
         structured_output_model=ResourcePlan,
         callback_handler=logging_callback_handler,
+        hooks=agent_hooks(),
     )
     result = bedrock_breaker.call(agent, user_prompt, invocation_state=invocation_state)
 
@@ -653,6 +694,7 @@ def _fix_template_yaml(
         system_prompt="You fix a JSON resource plan based on validation errors.",
         structured_output_model=ResourcePlan,
         callback_handler=logging_callback_handler,
+        hooks=agent_hooks(),
     )
     result = bedrock_breaker.call(agent, user_prompt, invocation_state=invocation_state)
 

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from strands import Agent
 
-from src.agents.common import bedrock_retry, create_bedrock_model
+from src.agents.common import agent_hooks, bedrock_retry, create_bedrock_model
 from src.config.callback import logging_callback_handler
 from src.config.circuit_breaker import bedrock_breaker
 from src.config.settings import settings
@@ -21,7 +21,6 @@ from src.models.interview_plan import (
     QuestionPlanOutput,
 )
 from src.models.requirements import (
-    UseCases,
     get_missing_fields_schema,
     get_seed_context_block,
 )
@@ -218,12 +217,14 @@ def generate_plan(
     use_cases: list,
     populated_fields: dict | None = None,
     tenant_id: str = "default",
+    project_id: str = "",
 ) -> tuple[QuestionPlan, str]:
     """Generate a QuestionPlan from seed data + KB search.
 
     Returns (plan, initial_message).
     """
     from src.config.metrics import metrics
+    from src.services.memory import create_session_manager
 
     bedrock_breaker.pre_check()
 
@@ -237,6 +238,8 @@ def generate_plan(
         tools=[],
         structured_output_model=QuestionPlanOutput,
         callback_handler=logging_callback_handler,
+        hooks=agent_hooks(),
+        session_manager=create_session_manager(tenant_id, project_id) if project_id else None,
     )
 
     start = time.perf_counter()
@@ -268,6 +271,7 @@ def replan(
     deviation_reason: str,
     use_cases: list,
     tenant_id: str = "default",
+    project_id: str = "",
 ) -> tuple[QuestionPlan, str]:
     """Re-plan after a curveball. Preserves answered entries, replaces pending ones.
 
@@ -293,6 +297,8 @@ def replan(
     }
     system_prompt = _replan_prompt_template.format(**format_vars)
 
+    from src.services.memory import create_session_manager
+
     agent = Agent(
         name="interview-replanner",
         model=create_bedrock_model(settings.interview_max_tokens),
@@ -300,6 +306,8 @@ def replan(
         tools=[],
         structured_output_model=QuestionPlanOutput,
         callback_handler=logging_callback_handler,
+        hooks=agent_hooks(),
+        session_manager=create_session_manager(tenant_id, project_id) if project_id else None,
     )
 
     start = time.perf_counter()

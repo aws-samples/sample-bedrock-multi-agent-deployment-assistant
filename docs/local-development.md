@@ -3,157 +3,144 @@
 ## Prerequisites
 
 - Python 3.12+ (via mise, pyenv, or system)
-- Node.js 20+ and pnpm
+- Node.js 24+ and pnpm (mise.toml specifies node 24)
 - uv (Python package manager)
-- AWS credentials configured (for Bedrock access — optional for local KB mode)
+- Docker (for Floci local AWS emulator)
+- AWS credentials configured (for real Bedrock API calls)
 
-## Initial Setup
+## Architecture
 
-```bash
-# Clone the repo
-git clone <repo-url> && cd ai-deploy-assistant
+Local development uses **Floci** — a local AWS service emulator that provides DynamoDB, S3, SQS, and Cognito without requiring a real AWS account for infrastructure. Real AWS credentials are only needed for Bedrock model invocations and Knowledge Base access.
 
-# Backend
-cd backend
-uv sync                    # Creates .venv and installs all dependencies
-cp .env.sample .env        # Create local env config
-cd ..
-
-# Frontend
-cd frontend
-pnpm install
-cd ..
+```
+Docker (Floci :4566) → DynamoDB, S3, SQS FIFO, Cognito
+Backend (:8000)      → FastAPI + local async worker
+Frontend (:3000)     → Next.js dev server
+Notification Worker  → DynamoDB stream → WebSocket bridge
 ```
 
-## Environment Configuration
-
-Edit `backend/.env`:
+## Quick Start
 
 ```bash
-# Minimum required for local development
-AI_DEPLOY_AWS_REGION=us-east-1
-AI_DEPLOY_STORAGE_BACKEND=local          # File-based storage (no DynamoDB/S3 needed)
-AI_DEPLOY_KNOWLEDGE_BASE_ID=             # Leave empty to use local KB
-AI_DEPLOY_DEBUG=true                     # Enables permissive CORS for localhost
-```
-
-### With Bedrock (recommended for full experience)
-
-```bash
-AI_DEPLOY_AWS_REGION=us-east-1
-AI_DEPLOY_PRIMARY_MODEL_ID=us.anthropic.claude-sonnet-4-20250514-v1:0
-AI_DEPLOY_LIGHTWEIGHT_MODEL_ID=us.anthropic.claude-haiku-3-20250310-v1:0
-AI_DEPLOY_KNOWLEDGE_BASE_ID=YOUR_KB_ID   # Optional — Bedrock KB for grounding
-```
-
-### Without Bedrock (local KB mode)
-
-If you don't have Bedrock access, the system uses local knowledge base documents:
-
-```bash
-AI_DEPLOY_KNOWLEDGE_BASE_ID=             # Empty — triggers local KB fallback
-```
-
-The `config.yaml` at project root points to `knowledge-base/` directory. Documents placed there are indexed and searched using TF-IDF scoring.
-
-## Running the Application
-
-### Both services (recommended)
-
-```bash
+# One command starts everything:
 ./dev.sh
+
+# Or with fresh state (wipes Floci data, re-provisions):
+./dev.sh --fresh
 ```
 
-### Backend only
+This script:
+1. Starts Floci via Docker Compose (DynamoDB, S3, SQS, Cognito emulation)
+2. Runs `scripts/setup-local.sh` to provision tables, queues, buckets, Cognito pool, and AgentCore Memory
+3. Syncs Knowledge Base documents to S3 and triggers Bedrock KB ingestion (if configured)
+4. Starts the FastAPI backend on http://localhost:8000
+5. Starts the notification worker (DynamoDB stream → WebSocket bridge)
+6. Starts the Next.js frontend on http://localhost:3000
 
+## Configuration
+
+### AWS Credentials for Bedrock
+
+`dev.sh` reads these environment variables (set in your shell or a git-ignored `.env.dev` file):
+
+| Variable | Purpose |
+|----------|---------|
+| `AWS_PROFILE` | AWS profile for Bedrock + KB API calls |
+| `BEDROCK_KB_ID` | Bedrock Knowledge Base ID (optional — omit for local KB) |
+| `BEDROCK_KB_BUCKET` | S3 bucket for KB source documents |
+| `BEDROCK_KB_DATA_SOURCE` | KB data source ID (enables auto-sync) |
+
+### Backend Environment
+
+`scripts/setup-local.sh` auto-generates `backend/.env` with Floci endpoints and provisioned resource names. Key settings:
+
+| Variable | Local Value |
+|----------|-------------|
+| `AI_DEPLOY_AWS_ENDPOINT_URL` | `http://localhost:4566` (routes DynamoDB/S3/SQS to Floci) |
+| `AI_DEPLOY_AWS_REGION` | `us-west-2` |
+| `AI_DEPLOY_DYNAMODB_TABLE` | `ai-deploy-table` |
+| `AI_DEPLOY_S3_ARTIFACTS_BUCKET` | `ai-deploy-artifacts` |
+| `AI_DEPLOY_COGNITO_USER_POOL_ID` | Auto-provisioned Floci pool |
+| `AI_DEPLOY_COGNITO_CLIENT_ID` | Auto-provisioned Floci client |
+| `AI_DEPLOY_SQS_DESIGN_QUEUE_URL` | Floci SQS FIFO queue |
+| `AI_DEPLOY_SQS_IAC_QUEUE_URL` | Floci SQS FIFO queue |
+| `AI_DEPLOY_SQS_DOCS_QUEUE_URL` | Floci SQS FIFO queue |
+| `AI_DEPLOY_DEBUG` | `true` |
+
+### Frontend Environment
+
+Copy the example file:
 ```bash
-cd backend
-uv run uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+cp frontend/.env.local.example frontend/.env.local
 ```
 
-### Frontend only
-
-```bash
-cd frontend
-pnpm dev
+Contents:
+```
+NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
+NEXT_PUBLIC_WEBSOCKET_URL=ws://localhost:8000/ws
+NEXT_PUBLIC_AUTH_ENABLED=true
 ```
 
-### Access Points
+## Authentication (Local)
 
-| Service | URL |
-|---------|-----|
-| Frontend | http://localhost:3000 |
-| Backend API | http://localhost:8000 |
-| Health check | http://localhost:8000/ping |
-| API docs (Swagger) | http://localhost:8000/docs |
+The setup script provisions a Cognito user pool in Floci with a test user:
 
-## Local Knowledge Base
+- **Email:** `dev@local.test`
+- **Password:** `LocalDev1!`
 
-The local KB is the development fallback for Bedrock. It reads markdown files from `knowledge-base/` with the same path structure as the S3 bucket:
-
-```
-knowledge-base/
-  {use_case}/
-    {deployment_type}/
-      {document_type}.md
-```
-
-### Adding documents
-
-1. Create a markdown file in the appropriate path
-2. The `LocalKBProvider` indexes on first search (lazy loading)
-3. To force re-indexing, restart the backend
-
-### How search works locally
-
-- **TF-IDF scoring** — term frequency x inverse document frequency
-- **Path-based filtering** — `use_case` and `deployment_type` map to directory names, `document_type` maps to the filename stem
-- **Results capped at 2000 chars** per document (same as Bedrock context window)
-
-## Running Tests
-
-```bash
-cd backend
-
-# Full test suite
-AI_DEPLOY_KNOWLEDGE_BASE_ID="" uv run pytest tests/ -q
-
-# Specific test file
-uv run pytest tests/test_layer_plan.py -v
-
-# With coverage
-uv run pytest tests/ --cov=src --cov-report=term-missing
-```
+The frontend login page authenticates against Floci's Cognito endpoint. JWTs issued by Floci are verified by the backend using Floci's JWKS endpoint.
 
 ## Storage
 
-In local mode (`AI_DEPLOY_STORAGE_BACKEND=local`), all data is stored in `.local-data/sessions/` as JSON files. This directory is gitignored.
+All storage goes through **DynamoDB + S3** (backed by Floci locally):
 
-In AWS mode, DynamoDB stores metadata and S3 stores artifacts.
+- **DynamoDB**: Project metadata, task state, step data (design/iac/docs results)
+- **S3**: Large artifacts (templates, documentation), Knowledge Base documents, interview plan state
+
+There is no "local file storage mode" — the same `DynamoS3ProjectStore` is used in both local and production environments.
 
 ## Async Processing
 
-When `AI_DEPLOY_SQS_*` queue URLs are not configured (the default for local dev), the backend spawns a local worker thread that processes design, IaC, and documentation tasks synchronously. No SQS or Lambda needed.
+The backend uses **SQS FIFO queues** for async task processing (design, IaC, docs generation). In local dev:
 
-## Common Issues
+1. `setup-local.sh` provisions SQS FIFO queues in Floci
+2. The backend's local worker polls these queues (same code path as Lambda workers in production)
+3. A separate notification worker monitors DynamoDB streams and pushes status updates via WebSocket
 
-### "Knowledge base not configured"
+## Knowledge Base
 
-This is normal if `AI_DEPLOY_KNOWLEDGE_BASE_ID` is empty AND no documents exist in `knowledge-base/`. The system still works — the LLM uses its built-in knowledge instead of KB grounding.
+Three modes (auto-selected by configuration):
 
-### Broken virtualenv
+| Mode | When | How |
+|------|------|-----|
+| **Bedrock** | `BEDROCK_KB_ID` is set in env | Real AWS Bedrock KB API with vector search |
+| **Local** | `knowledge_base.local_path` in config.yaml | TF-IDF search over local markdown files |
+| **Null** | Neither configured | Graceful no-op (LLM uses built-in knowledge) |
 
-If the venv has dangling symlinks (e.g., after Python version change):
+For local development without Bedrock access, the system falls back to local TF-IDF search over files in `knowledge-base/`.
+
+## Running Individual Components
 
 ```bash
-cd backend
-rm -rf .venv
-uv sync
+# Backend only
+cd backend && uv run uvicorn src.main:app --host 127.0.0.1 --port 8000 --reload
+
+# Frontend only
+cd frontend && pnpm dev
+
+# Tests (backend)
+cd backend && uv run pytest tests/ -q
+
+# Tests (frontend)
+cd frontend && pnpm test
 ```
 
-### Port already in use
+## Troubleshooting
 
-```bash
-lsof -i :8000   # Find the process
-kill <PID>       # Kill it
-```
+| Issue | Fix |
+|-------|-----|
+| Floci won't start | Ensure Docker is running. Try `docker compose down && ./dev.sh --fresh` |
+| Backend can't reach Floci | Check `http://localhost:4566/_localstack/health` returns 200 |
+| Auth fails | Run `./dev.sh --fresh` to re-provision Cognito pool and test user |
+| KB search returns nothing | Ensure `knowledge-base/` has markdown files, or set `BEDROCK_KB_ID` for real KB |
+| "Bedrock throttling" errors | Check your AWS profile has Bedrock model access in the configured region |

@@ -107,7 +107,7 @@ export function DocumentationView({
         )}
 
         {/* Tabs */}
-        <div className="flex border-b border-gray-200 mb-4 overflow-x-auto">
+        <div className="flex border-b border-gray-200 mb-4 overflow-x-auto" role="tablist" aria-label="Documentation sections">
           {TABS.map((tab) => {
             const content = docs?.[tab.field] ?? "";
             const hasContent = typeof content === "string" && content.length > 0;
@@ -116,6 +116,10 @@ export function DocumentationView({
             return (
               <button
                 key={tab.key}
+                role="tab"
+                aria-selected={activeTab === tab.key}
+                aria-controls={`tabpanel-${tab.key}`}
+                aria-disabled={!hasContent}
                 onClick={() => hasContent && setActiveTab(tab.key)}
                 className={`px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
                   activeTab === tab.key
@@ -127,7 +131,7 @@ export function DocumentationView({
               >
                 {tab.label}
                 {(isGenerating || isRegenerating) && (
-                  <span className="ml-2 inline-block h-2 w-2 rounded-full bg-blue-400 animate-pulse" />
+                  <span className="ml-2 inline-block h-2 w-2 rounded-full bg-blue-400 animate-pulse" aria-label="Generating" />
                 )}
               </button>
             );
@@ -136,30 +140,34 @@ export function DocumentationView({
 
         {/* Content */}
         {activeTab === "diagram" && (
-          isRegeneratingActiveTab ? (
-            <div className="py-8 text-center text-gray-400 text-sm">
-              Regenerating architecture diagram...
-            </div>
-          ) : docs?.architecture_diagram ? (
-            <MermaidRenderer code={docs.architecture_diagram} />
-          ) : isTaskActive ? (
-            <div className="py-8 text-center text-gray-400 text-sm">
-              Generating architecture diagram...
-            </div>
-          ) : null
+          <div role="tabpanel" id="tabpanel-diagram" aria-labelledby="tab-diagram">
+            {isRegeneratingActiveTab ? (
+              <div className="py-8 text-center text-gray-400 text-sm" aria-live="polite">
+                Regenerating architecture diagram...
+              </div>
+            ) : docs?.architecture_diagram ? (
+              <MermaidRenderer code={docs.architecture_diagram} />
+            ) : isTaskActive ? (
+              <div className="py-8 text-center text-gray-400 text-sm" aria-live="polite">
+                Generating architecture diagram...
+              </div>
+            ) : null}
+          </div>
         )}
         {activeTab === "guide" && (
-          isRegeneratingActiveTab ? (
-            <div className="py-8 text-center text-gray-400 text-sm">
-              Regenerating user guide...
-            </div>
-          ) : docs?.user_guide ? (
-            <MarkdownRenderer content={docs.user_guide} />
-          ) : isTaskActive ? (
-            <div className="py-8 text-center text-gray-400 text-sm">
-              Generating user guide...
-            </div>
-          ) : null
+          <div role="tabpanel" id="tabpanel-guide" aria-labelledby="tab-guide">
+            {isRegeneratingActiveTab ? (
+              <div className="py-8 text-center text-gray-400 text-sm" aria-live="polite">
+                Regenerating user guide...
+              </div>
+            ) : docs?.user_guide ? (
+              <MarkdownRenderer content={docs.user_guide} />
+            ) : isTaskActive ? (
+              <div className="py-8 text-center text-gray-400 text-sm" aria-live="polite">
+                Generating user guide...
+              </div>
+            ) : null}
+          </div>
         )}
 
         {/* Regenerate + Start Over */}

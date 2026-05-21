@@ -15,7 +15,6 @@ import ipaddress
 import logging
 import math
 
-import boto3
 from botocore.exceptions import ClientError
 
 from src.config.settings import settings
@@ -378,7 +377,8 @@ class ParameterResolver:
         )
 
         try:
-            s3_client = boto3.client("s3", region_name=settings.aws_region)
+            from src.config.aws import aws_client
+            s3_client = aws_client("s3")
             paginator = s3_client.get_paginator("list_objects_v2")
             page_iterator = paginator.paginate(Bucket=bucket, Prefix=s3_prefix)
 

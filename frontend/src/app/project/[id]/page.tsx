@@ -146,6 +146,21 @@ export default function ProjectWorkspace({
             />
           )}
 
+          {/* Design failed or missing: no recommendation and no active task */}
+          {step === "design" && !recommendation && !refinementPlan && !loading && (
+            <div className="bg-white rounded-lg border border-red-200 p-6 text-center">
+              <p className="text-sm text-red-700 mb-4">
+                {error || "Design generation failed. Please try again."}
+              </p>
+              <button
+                onClick={goBack}
+                className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Back to Requirements
+              </button>
+            </div>
+          )}
+
           {/* Deployment parameters form: shown after design selection returns a refinement plan */}
           {step === "design" && refinementPlan && (
             <DeploymentParametersForm

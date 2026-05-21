@@ -11,7 +11,7 @@ from pathlib import Path
 
 from strands import Agent
 
-from src.agents.common import bedrock_retry, create_bedrock_model
+from src.agents.common import agent_hooks, bedrock_retry, create_bedrock_model
 from src.config.callback import logging_callback_handler
 from src.config.circuit_breaker import bedrock_breaker
 from src.config.settings import settings
@@ -128,6 +128,7 @@ def execute_turn(
     plan: QuestionPlan,
     user_message: str,
     tenant_id: str = "default",
+    project_id: str = "",
 ) -> tuple[QuestionPlan, TurnResponse]:
     """Execute a single interview turn: parse answer + generate next question.
 
@@ -135,6 +136,7 @@ def execute_turn(
     Raises if no pending questions remain (caller should check plan.blocking_complete()).
     """
     from src.config.metrics import metrics
+    from src.services.memory import create_session_manager
 
     bedrock_breaker.pre_check()
 
@@ -155,6 +157,8 @@ def execute_turn(
         tools=[],
         structured_output_model=TurnResponse,
         callback_handler=logging_callback_handler,
+        hooks=agent_hooks(),
+        session_manager=create_session_manager(tenant_id, project_id) if project_id else None,
     )
 
     start = time.perf_counter()
@@ -173,15 +177,36 @@ def execute_turn(
     # Server-side validation
     response = _validate_parsed_value(response, current_q)
 
-    # Low confidence — don't advance the plan
+    # Low confidence — don't advance the plan (with attempt limit)
     if response.confidence < 0.5 and not response.deviation_detected:
+        current_q.clarification_attempts += 1
+
+        if current_q.clarification_attempts >= _MAX_CLARIFICATION_ATTEMPTS:
+            # Exhausted attempts — present options or accept a default
+            if current_q.valid_values:
+                options_list = ", ".join(f"**{v}**" for v in current_q.valid_values)
+                response.response_message = (
+                    f"Let me give you some options to choose from. "
+                    f"Please select one of: {options_list}"
+                )
+            else:
+                # No valid_values defined — accept the raw answer with low confidence
+                logger.info("Max clarifications reached for '%s' with no options, accepting raw value", current_q.field_path)
+                if response.parsed_value is not None:
+                    plan.mark_answered(current_q.field_path, response.parsed_value)
+                    plan.evaluate_skip_conditions()
+            logger.info("Max clarification attempts (%d) reached for '%s'", _MAX_CLARIFICATION_ATTEMPTS, current_q.field_path)
+            return plan, response
+
         hint = ""
         if current_q.valid_values:
             hint = f" For example: {current_q.valid_values[0]}."
         response.response_message = (
             f"Could you clarify? {current_q.question_template}{hint}"
         )
-        logger.info("Low confidence (%.2f) on '%s' — requesting clarification", response.confidence, current_q.field_path)
+        logger.info("Low confidence (%.2f) on '%s' — requesting clarification (attempt %d/%d)",
+                    response.confidence, current_q.field_path,
+                    current_q.clarification_attempts, _MAX_CLARIFICATION_ATTEMPTS)
         return plan, response
 
     # Deviation — don't advance, let caller handle re-plan

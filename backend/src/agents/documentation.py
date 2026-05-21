@@ -21,7 +21,7 @@ from pathlib import Path
 
 from strands import Agent
 
-from src.agents.common import bedrock_retry, create_bedrock_model, strip_fences
+from src.agents.common import agent_hooks, bedrock_retry, create_bedrock_model, strip_fences
 from src.config.callback import logging_callback_handler
 from src.config.circuit_breaker import bedrock_breaker
 from src.config.settings import settings
@@ -33,19 +33,14 @@ logger = logging.getLogger(__name__)
 _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 
-class _PartialFormatMap(dict):
-    """Dict that returns '{key}' for missing keys — enables partial .format_map()."""
-    def __missing__(self, key: str) -> str:
-        return "{" + key + "}"
-
-
 def _load_prompt(name: str) -> str:
     """Load a prompt template and inject catalog context variables."""
     from src.services.catalog_loader import get_catalog
+    from src.utils.formatting import PartialFormatMap
     template = (_PROMPTS_DIR / name).read_text()
     try:
         catalog = get_catalog()
-        return template.format_map(_PartialFormatMap(catalog.get_prompt_context()))
+        return template.format_map(PartialFormatMap(catalog.get_prompt_context()))
     except Exception:
         return template
 
@@ -78,6 +73,7 @@ def _generate_diagram(cft_template: str, state: dict) -> str:
         model=model,
         system_prompt=_DIAGRAM_SYSTEM_PROMPT,
         callback_handler=logging_callback_handler,
+        hooks=agent_hooks(),
     )
     result = bedrock_breaker.call(agent, user_prompt, invocation_state=state)
     return strip_fences(str(result))
@@ -103,6 +99,7 @@ def _fix_diagram(
         model=model,
         system_prompt=_DIAGRAM_SYSTEM_PROMPT,
         callback_handler=logging_callback_handler,
+        hooks=agent_hooks(),
     )
     result = bedrock_breaker.call(agent, user_prompt, invocation_state=state)
     return strip_fences(str(result))
@@ -175,6 +172,8 @@ Be thorough and detailed — this is production documentation.\
 @bedrock_retry("docs-user-guide")
 def _generate_user_guide(context: dict[str, str], state: dict) -> str:
     """Generate the complete user guide in a single LLM call."""
+    from src.services.memory import create_session_manager
+
     user_prompt = _load_prompt("docs_user_guide.txt").replace(
         "{design_json}", context["design_json"]
     ).replace(
@@ -182,12 +181,18 @@ def _generate_user_guide(context: dict[str, str], state: dict) -> str:
     ).replace(
         "{cft_template}", context["cft_template"]
     )
+
+    tenant_id = state.get("tenant_id", "")
+    project_id = state.get("project_id", "")
+
     model = create_bedrock_model(max_tokens=settings.docs_user_guide_max_tokens)
     agent = Agent(
         name="docs-user-guide",
         model=model,
         system_prompt=_TEXT_SYSTEM_PROMPT,
         callback_handler=logging_callback_handler,
+        hooks=agent_hooks(),
+        session_manager=create_session_manager(tenant_id, project_id) if project_id else None,
     )
     result = bedrock_breaker.call(agent, user_prompt, invocation_state=state)
     return strip_fences(str(result))

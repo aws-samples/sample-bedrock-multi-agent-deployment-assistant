@@ -18,7 +18,6 @@ import logging
 import time
 from pathlib import Path
 
-import boto3
 import yaml
 from strands import Agent
 
@@ -41,16 +40,12 @@ PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 _refinement_prompt_raw = (PROMPTS_DIR / "refinement.txt").read_text()
 
 
-class _PartialFormatMap(dict):
-    def __missing__(self, key: str) -> str:
-        return "{" + key + "}"
-
-
 def _get_refinement_prompt() -> str:
     from src.services.catalog_loader import get_catalog
+    from src.utils.formatting import PartialFormatMap
     try:
         catalog = get_catalog()
-        return _refinement_prompt_raw.format_map(_PartialFormatMap(catalog.get_prompt_context()))
+        return _refinement_prompt_raw.format_map(PartialFormatMap(catalog.get_prompt_context()))
     except Exception:
         return _refinement_prompt_raw
 
@@ -119,7 +114,8 @@ def _fetch_template_parameters(s3_prefix: str) -> tuple[list[str], str]:
         Returns ([], "") on any failure.
     """
     try:
-        s3 = boto3.client("s3", region_name=settings.aws_region)
+        from src.config.aws import aws_client
+        s3 = aws_client("s3")
         bucket = settings.s3_knowledge_base_bucket
 
         # List objects under the prefix to find the main template file

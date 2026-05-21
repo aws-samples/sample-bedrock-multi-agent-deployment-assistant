@@ -81,32 +81,6 @@ class TestPlanCacheTTL:
 # ===================================================================
 
 
-class TestPlanPathResolution:
-    def test_valid_session_id(self):
-        cache = PlanCache()
-        path = cache._plan_path("interview-tenant1-project1")
-        assert path is not None
-        assert "tenant1" in str(path)
-        assert "project1" in str(path)
-        assert str(path).endswith("interview_plan.json")
-
-    def test_invalid_prefix_returns_none(self):
-        cache = PlanCache()
-        assert cache._plan_path("design-t1-p1") is None
-
-    def test_too_few_parts_returns_none(self):
-        cache = PlanCache()
-        assert cache._plan_path("interview-onlyone") is None
-
-    def test_path_traversal_returns_none(self):
-        cache = PlanCache()
-        assert cache._plan_path("interview-../etc-passwd") is None
-
-    def test_unsafe_id_returns_none(self):
-        cache = PlanCache()
-        assert cache._plan_path("interview-t1;drop-p1") is None
-
-
 # ===================================================================
 # S3 key resolution — _s3_key
 # ===================================================================
@@ -132,35 +106,3 @@ class TestS3Key:
 # ===================================================================
 
 
-class TestPlanCacheLocalPersistence:
-    def test_save_and_load_local(self, tmp_path):
-        cache = PlanCache()
-        plan = _sample_plan()
-
-        with patch.object(cache, "_plan_path", return_value=tmp_path / "t1" / "p1" / "interview_plan.json"):
-            cache._save_local("interview-t1-p1", plan)
-            loaded = cache._load_local("interview-t1-p1")
-
-        assert loaded is not None
-        assert loaded.entries[0].field_path == "role"
-        assert loaded.populated_fields["gpu_budget"] == "moderate"
-
-    def test_load_local_missing_returns_none(self, tmp_path):
-        cache = PlanCache()
-        with patch.object(cache, "_plan_path", return_value=tmp_path / "nonexistent" / "plan.json"):
-            assert cache._load_local("interview-t1-p1") is None
-
-    def test_delete_local_removes_file(self, tmp_path):
-        cache = PlanCache()
-        plan_file = tmp_path / "plan.json"
-        plan_file.write_text(_sample_plan().model_dump_json())
-
-        with patch.object(cache, "_plan_path", return_value=plan_file):
-            cache._delete_local("interview-t1-p1")
-
-        assert not plan_file.exists()
-
-    def test_delete_local_missing_file_no_error(self, tmp_path):
-        cache = PlanCache()
-        with patch.object(cache, "_plan_path", return_value=tmp_path / "nonexistent.json"):
-            cache._delete_local("interview-t1-p1")  # should not raise

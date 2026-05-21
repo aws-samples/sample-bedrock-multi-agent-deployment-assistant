@@ -10,11 +10,11 @@ import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
-import boto3
-
+from src.config.aws import aws_client
 from src.config.settings import settings
 from src.models.iac import IaCTask, IaCTaskStatus
 from src.storage import get_store
+from src.storage.protocol import ActiveTaskConflictError
 from src.utils.validation import validate_safe_id
 
 logger = logging.getLogger(__name__)
@@ -42,12 +42,16 @@ def submit_iac_task(
     if not design_data or "resolved_parameters" not in design_data:
         raise ValueError("Design must have resolved parameters before IaC generation")
 
-    # Check for active IaC task
+    # Check for active IaC task (non-atomic pre-check for better error messages).
+    # Also self-heals orphaned pointers from completed/failed tasks.
     project = store.get_project(tenant_id, project_id)
     if project and getattr(project, "active_iac_task_id", None):
         existing = store.get_iac_task(tenant_id, project.active_iac_task_id)
         if existing and existing.status in (IaCTaskStatus.QUEUED, IaCTaskStatus.PROCESSING, IaCTaskStatus.VALIDATING):
             raise ValueError(f"IaC task {existing.task_id} is already active for this project")
+        # Stale pointer (task completed/failed but pointer wasn't cleared) — clean up
+        project.active_iac_task_id = None
+        store.update_project(project)
 
     task_id = str(uuid.uuid4())
     now = datetime.now(UTC).isoformat()
@@ -63,10 +67,15 @@ def submit_iac_task(
     )
     store.create_iac_task(tenant_id, task)
 
-    # Track active task on project
-    if project:
-        project.active_iac_task_id = task_id
-        store.update_project(project)
+    # Atomically claim the active task slot (prevents TOCTOU race)
+    try:
+        store.claim_active_task(tenant_id, project_id, "active_iac_task_id", task_id)
+    except ActiveTaskConflictError:
+        store.update_iac_task(tenant_id, task_id, {
+            "status": IaCTaskStatus.FAILED.value,
+            "error_message": "Another IaC task was claimed concurrently",
+        })
+        raise ValueError("Another IaC task is already active for this project")
 
     body = {
         "task_id": task_id,
@@ -83,14 +92,32 @@ def submit_iac_task(
 
 def _submit_sqs(body: dict) -> dict:
     """Submit IaC task to SQS for Lambda processing."""
-    sqs = boto3.client("sqs", region_name=settings.aws_region)
-    sqs.send_message(
-        QueueUrl=settings.sqs_iac_queue_url,
-        MessageBody=json.dumps(body),
-        MessageGroupId=f"{body['tenant_id']}#{body['project_id']}",
-    )
-    logger.info("IaC task %s submitted to SQS", body["task_id"])
-    return {"task_id": body["task_id"], "status": "queued"}
+    task_id = body["task_id"]
+    tenant_id = body["tenant_id"]
+    project_id = body["project_id"]
+
+    try:
+        sqs = aws_client("sqs")
+        sqs.send_message(
+            QueueUrl=settings.sqs_iac_queue_url,
+            MessageBody=json.dumps(body),
+            MessageGroupId=f"{tenant_id}#{project_id}",
+        )
+    except Exception as e:
+        logger.error("SQS send failed for IaC task %s: %s", task_id, e)
+        store = get_store()
+        store.update_iac_task(tenant_id, task_id, {
+            "status": IaCTaskStatus.FAILED.value,
+            "error_message": f"Queue delivery failed: {e}",
+        })
+        project = store.get_project(tenant_id, project_id)
+        if project:
+            project.active_iac_task_id = None
+            store.update_project(project)
+        raise
+
+    logger.info("IaC task %s submitted to SQS", task_id)
+    return {"task_id": task_id, "status": "queued"}
 
 
 def _submit_local_async(body: dict) -> dict:

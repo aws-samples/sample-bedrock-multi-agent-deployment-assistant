@@ -2,6 +2,26 @@
 
 import { useEffect } from "react";
 
+function reportError(error: Error & { digest?: string }) {
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "";
+  if (!backendUrl) return;
+
+  const payload = {
+    message: error.message || "Unknown error",
+    stack: error.stack?.slice(0, 10000),
+    page: typeof window !== "undefined" ? window.location.pathname : undefined,
+    user_agent:
+      typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+    timestamp: new Date().toISOString(),
+  };
+
+  fetch(`${backendUrl}/api/errors`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).catch(() => {});
+}
+
 export default function GlobalError({
   error,
   reset,
@@ -11,6 +31,7 @@ export default function GlobalError({
 }) {
   useEffect(() => {
     console.error("Unhandled error:", error);
+    reportError(error);
   }, [error]);
 
   return (

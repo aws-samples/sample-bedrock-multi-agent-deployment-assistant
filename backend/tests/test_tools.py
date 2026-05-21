@@ -180,13 +180,13 @@ class TestSaveArtifact:
             assert "proj-123" in result
             assert "docs/guide.md" in result
 
-    @patch("src.tools.save_artifact.boto3")
-    def test_saves_to_s3_when_configured(self, mock_boto3):
+    def test_saves_to_s3_when_configured(self):
         """save_artifact uploads to S3 when bucket is configured."""
         mock_client = MagicMock()
-        mock_boto3.client.return_value = mock_client
 
-        with patch("src.tools.save_artifact.settings") as mock_settings:
+        with patch("src.tools.save_artifact._get_s3_client", return_value=mock_client), \
+             patch("src.tools.save_artifact.s3_encryption_kwargs", return_value={}), \
+             patch("src.tools.save_artifact.settings") as mock_settings:
             mock_settings.s3_artifacts_bucket = "my-artifacts-bucket"
             mock_settings.aws_region = "us-east-1"
             from src.tools.save_artifact import save_artifact

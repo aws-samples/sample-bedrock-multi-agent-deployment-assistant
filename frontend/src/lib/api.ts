@@ -12,13 +12,23 @@ import type {
   ProjectState,
 } from "./types";
 
-import { getStoredToken } from "./auth";
+import { getStoredToken, clearAuth, buildLoginUrl, isLocalMode, isHostedUI } from "./auth";
 
 const API = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
 function authHeaders(): Record<string, string> {
   const token = getStoredToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function handleUnauthorized(): void {
+  if (isLocalMode()) return;
+  clearAuth();
+  if (isHostedUI()) {
+    window.location.href = buildLoginUrl();
+  } else {
+    window.location.href = "/login";
+  }
 }
 
 function sanitizeApiError(text: string, status: number): string {
@@ -69,6 +79,7 @@ async function request<T>(
     throw err;
   }
   if (!res.ok) {
+    if (res.status === 401) handleUnauthorized();
     const text = await res.text().catch(() => res.statusText);
     throw new Error(`API ${res.status}: ${sanitizeApiError(text, res.status)}`);
   }
@@ -140,6 +151,7 @@ async function fetchSSEStream(
   });
 
   if (!res.ok) {
+    if (res.status === 401) handleUnauthorized();
     const text = await res.text().catch(() => res.statusText);
     throw new Error(`API ${res.status}: ${sanitizeApiError(text, res.status)}`);
   }
@@ -152,8 +164,11 @@ export function createProject(name: string, tenantId = "default"): Promise<Proje
   return request(withTenant("/api/projects", tenantId), { name });
 }
 
-export function listProjects(tenantId = "default"): Promise<Project[]> {
-  return request(withTenant("/api/projects", tenantId));
+export async function listProjects(tenantId = "default"): Promise<Project[]> {
+  const data = await request<{ projects: Project[]; next_cursor?: string }>(
+    withTenant("/api/projects", tenantId),
+  );
+  return data.projects;
 }
 
 export function getProjectState(

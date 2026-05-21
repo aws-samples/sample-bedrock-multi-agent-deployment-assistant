@@ -21,7 +21,7 @@ export function usePollTask<T>(options: PollTaskOptions<T>) {
   });
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pollRef = useRef<(taskId: string, attempt?: number) => Promise<void>>();
+  const pollRef = useRef<(taskId: string, attempt?: number) => Promise<void>>(undefined);
 
   const poll = useCallback(async (taskId: string, attempt = 0) => {
     const opts = optionsRef.current;

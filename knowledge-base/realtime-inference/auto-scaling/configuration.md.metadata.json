@@ -1,0 +1,7 @@
+{
+  "metadataAttributes": {
+    "use_case": "realtime-inference",
+    "deployment_type": "auto-scaling",
+    "document_type": "configuration"
+  }
+}
